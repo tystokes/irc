@@ -1,7 +1,8 @@
 #!/usr/bin/python
 """ 
 	@author Tyler 'Olaf' Stokes <tystokes@umich.edu> 
-	Written for python 3. Stay mad.
+	A bot able to accept dcc transfers using the irc protocol
+	Written for python 3.
 """
 import sys
 import socket
@@ -120,20 +121,22 @@ class IRCConnection:
 			try:
 				self.sock.connect((self.host, self.port))
 				self.listenerThread.start()
-				#usage example:
+				# supply the standard nick and user info to the server
 				send(self.sock, "NICK %s\r\n" % self.nick)
 				send(self.sock, "USER %s %s * :%s\r\n"
 					% (self.ident, self.host, self.realname))
-				#sleep to make sure nick/usr is registered before anything else
+				# sleep to make sure nick/usr is registered
 				time.sleep(5)
-				#send(self.sock, "PRIVMSG Ginpachi-Sensei :XDCC SEND #1\r\n")
-				for i in range(4912, 4914):
-					send(self.sock, "PRIVMSG Ginpachi-Sensei :XDCC SEND #" + str(i) + "\r\n")
-					time.sleep(15)
 				self.connected = True
 			except socket.error:
 				time.sleep(5)
 				print("Connection failed... retrying.")
 				continue
-#usage example
-IRCConnection().connect()
+	def msg(self, who, what):
+		send(self.sock, "PRIVMSG %s :%s\r\n" % (who, what))
+
+# usage example
+con = IRCConnection()
+con.connect()
+gin = "Ginpachi-Sensei" # A bot I use often on the rizon network
+con.msg(gin, "XDCC SEND #1"); # Asks for gin's packlist
