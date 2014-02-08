@@ -90,7 +90,7 @@ class ListenerThread(Thread):
 				send(irc, "PONG " + data.split()[1] + "\r\n")
 				lastPing = time.time()
 			if data.find("VERSION") != -1:
-				send(irc, "VERSION irssi [x86] / Linux \r\n")
+				send(irc, "VERSION irssi v0.8.12 \r\n")
 			if data.find("DCC SEND") != -1:
 				(filename, ip, port, filesize) = [t(s) for t,s in zip((str,int,int,int),
 					re.search('DCC SEND \"*([^"]+)\"* (\d+) (\d+) (\d+)',data).groups())]
@@ -139,4 +139,4 @@ class IRCConnection:
 con = IRCConnection()
 con.connect()
 gin = "Ginpachi-Sensei" # A bot I use often on the rizon network
-con.msg(gin, "XDCC SEND #1"); # Asks for gin's packlist
+con.msg(gin, "XDCC SEND #1") # Asks for gin's packlist
