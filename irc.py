@@ -13,6 +13,7 @@ import time
 import threading
 import struct
 import re
+import codecs
 from threading import Thread
 
 """	Converts a string to bytes with a UTF-8 encoding
@@ -84,11 +85,12 @@ class ListenerThread(Thread):
 			if len(data) == 0:
 				print("Connection to server lost.")
 				break
-			print("Received msg:")
-			print(data)
 			if data.find("PING") != -1:
 				send(irc, "PONG " + data.split()[1] + "\r\n")
 				lastPing = time.time()
+				continue
+			print("Received msg:")
+			print(data)
 			if data.find("VERSION") != -1:
 				send(irc, "VERSION irssi v0.8.12 \r\n")
 			if data.find("DCC SEND") != -1:
@@ -100,7 +102,44 @@ class ListenerThread(Thread):
 			if (time.time() - lastPing) > 300:
 				print("Connection timed out.")
 				break
-
+class ParseThread(Thread):
+	def __init__(self, ircConnection, bot, filename, series):
+		Thread.__init__(self)
+		self.filename = filename
+		self.bot = bot
+		self.ircConnection = ircConnection
+		self.die = False
+		self.series = series
+	def run(self):
+		while not self.die:
+			sleepTime = 60*60*3
+			print("Checking for packs. " + time.asctime(time.localtime()))
+			self.ircConnection.msg(self.bot, "XDCC SEND #1")
+			time.sleep(5)
+			sleepTime -= 5
+			f = codecs.open(self.filename, "r", "utf-8")
+			for line in f:
+				try:
+					(pack, dls, size, name) = [t(s) for t,s in zip((str,int,str,str),
+					re.search('(\S+)[ ]+(\d+)x \[([^\[^\]]+)\] ([^"]+)\n', line).groups())]
+					for s in self.series:
+						goodCandidate = True
+						for kw in s:
+							if name.find(kw) == -1:
+								goodCandidate = False
+								break
+						if goodCandidate:
+							print(name + " looks like a good candidate.")
+							if not os.path.isfile(name):
+								self.ircConnection.msg(self.bot, "XDCC SEND %s" % pack)
+								time.sleep(20) # wait 20 sec so we aren't spamming the bot
+								sleepTime -= 20
+							else:
+								print("File already exists.")
+				except:
+					continue
+			f.close()
+			time.sleep(sleepTime)
 """	An IRCConnection acts as the 'command thread'.
 	It starts a ListenerThread so it doesn't have
 	to worry about 'blocking' recv calls."""
@@ -135,8 +174,13 @@ class IRCConnection:
 	def msg(self, who, what):
 		send(self.sock, "PRIVMSG %s :%s\r\n" % (who, what))
 
-# usage example
+""" usage example """
 con = IRCConnection()
 con.connect()
-gin = "Ginpachi-Sensei" # A bot I use often on the rizon network
-con.msg(gin, "XDCC SEND #1") # Asks for gin's packlist
+# A bot I use often on the rizon network
+gin = "Ginpachi-Sensei"
+# Fill in keywords to look for each series
+series = [["Anime X","[Doki]","01"], # Anime X episode 01 by Doki
+	["Anime Y","[HorribleSubs]"]] # All episodes of Anime Y by HorribleSubs
+# ParseThread will parse the bot's packlist every 3 hours looking for packs that fit the keyword set
+ParseThread(con, gin, "Gin.txt", series).start()
