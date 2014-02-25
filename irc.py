@@ -94,14 +94,19 @@ class ListenerThread(Thread):
 			if data.find("VERSION") != -1:
 				send(irc, "VERSION irssi v0.8.12 \r\n")
 			if data.find("DCC SEND") != -1:
-				(filename, ip, port, filesize) = [t(s) for t,s in zip((str,int,int,int),
-					re.search('DCC SEND \"*([^"]+)\"* (\d+) (\d+) (\d+)',data).groups())]
-				packedValue = struct.pack('!I', ip)
-				host = socket.inet_ntoa(packedValue)
-				DCCThread(filename, host, port, filesize).start()
+				try:
+					(filename, ip, port, filesize) = [t(s) for t,s in zip((str,int,int,int),
+						re.search('DCC SEND \"*([^"]+)\"* (\d+) (\d+) (\d+)',data).groups())]
+					packedValue = struct.pack('!I', ip)
+					host = socket.inet_ntoa(packedValue)
+					DCCThread(filename, host, port, filesize).start()
+				except:
+					print("back DCC SEND request, ignoring...")
 			if (time.time() - lastPing) > 300:
 				print("Connection timed out.")
 				break
+""" A ParseThread searches an XDCC bot's packlist
+	for packs that match user-specified keywords."""
 class ParseThread(Thread):
 	def __init__(self, ircConnection, bot, filename, series):
 		Thread.__init__(self)
@@ -139,21 +144,23 @@ class ParseThread(Thread):
 				except:
 					continue
 			f.close()
+			print("Finished checking for packs.")
 			time.sleep(sleepTime)
 """	An IRCConnection acts as the 'command thread'.
 	It starts a ListenerThread so it doesn't have
 	to worry about 'blocking' recv calls."""
 class IRCConnection:
-	def __init__(self):
-		self.host = "irc.rizon.net"
-		self.port = 6667
-		self.nick = "roughneck"
-		self.ident = "roughneck"
-		self.realname = "roughneck"
+	def __init__(self, network, port, nick):
+		self.host = network
+		self.port = port
+		self.nick = nick
+		self.ident = nick
+		self.realname = nick
 		self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.sock.settimeout(300)
 		self.connected = False
 		self.listenerThread = ListenerThread(self)
+		self.connect()
 
 	def connect(self):
 		while not self.connected:
@@ -165,7 +172,7 @@ class IRCConnection:
 				send(self.sock, "USER %s %s * :%s\r\n"
 					% (self.ident, self.host, self.realname))
 				# sleep to make sure nick/usr is registered
-				time.sleep(5)
+				time.sleep(3)
 				self.connected = True
 			except socket.error:
 				time.sleep(5)
@@ -175,8 +182,8 @@ class IRCConnection:
 		send(self.sock, "PRIVMSG %s :%s\r\n" % (who, what))
 
 """ usage example """
-con = IRCConnection()
-con.connect()
+# IRCConnection(network, port, nick)
+con = IRCConnection("irc.rizon.net", 6667, "roughneck")
 # A bot I use often on the rizon network
 gin = "Ginpachi-Sensei"
 # Fill in keywords to look for each series
