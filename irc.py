@@ -4,6 +4,7 @@
 	A bot able to accept dcc transfers using the irc protocol
 	Written for python 3.
 """
+import math
 import sys
 import socket
 import string
@@ -21,6 +22,21 @@ from threading import Thread
 def send(socket, string):
 	socket.send(bytes(string, "UTF-8"))
 
+""" Human readable filesize conversion """
+def convertSize(size):
+	names = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"]
+	i = int(math.floor(math.log(size, 1024)))
+	p = pow(1024, i)
+	s = size/p
+	if s >= 10:
+		tmp = round(s)
+	else:
+		tmp = round(s, 1)
+	if s > 0:
+		return "%s %s" % (tmp, names[i])
+	else:
+		return "0 B"
+
 """	A DCCThread handles a DCC SEND request by
 	opening up the specified port and receiving the file."""
 class DCCThread(Thread):
@@ -31,7 +47,6 @@ class DCCThread(Thread):
 		self.port = port
 		self.filesize = filesize
 	def run(self):
-		print("running DCCThread")
 		self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.sock.settimeout(200)
 		self.sock.connect((self.host, self.port))
@@ -48,21 +63,22 @@ class DCCThread(Thread):
 			f.write(str())
 		f.close()
 		totalBytes = 0
+		print("Downloading: " + self.filename + " [" + convertSize(self.filesize) + "]")
 		try:
-			while totalBytes != self.filesize:
-				tmp = self.sock.recv(4096)
-				totalBytes += len(tmp)
-				if len(tmp) <= 0:
-					print("DCC error: Socked closed.")
-					break
-				# Append to file
-				with open(self.filename, "ab") as f:
+			with open(self.filename, "ab") as f:
+				while totalBytes != self.filesize:
+					tmp = self.sock.recv(4096)
+					totalBytes += len(tmp)
+					if len(tmp) <= 0:
+						print("DCC error: Socked closed.")
+						break
+					# Append to file
 					f.write(tmp)
-				f.close()
+			f.close()
 		except:
 			raise
-		print("DCC complete: closing socket.")
 		self.sock.close()
+		print("Transfer of " + self.filename + " complete.")
 	def shouldOverwrite(self): # Perhaps take in user input?
 		if re.search('.txt\Z', self.filename):
 			return True
@@ -89,8 +105,7 @@ class ListenerThread(Thread):
 				send(irc, "PONG " + data.split()[1] + "\r\n")
 				lastPing = time.time()
 				continue
-			print("Received msg:")
-			print(data)
+			print("Received=" + data, end="")
 			if data.find("VERSION") != -1:
 				send(irc, "VERSION irssi v0.8.12 \r\n")
 			if data.find("DCC SEND") != -1:
@@ -101,10 +116,11 @@ class ListenerThread(Thread):
 					host = socket.inet_ntoa(packedValue)
 					DCCThread(filename, host, port, filesize).start()
 				except:
-					print("back DCC SEND request, ignoring...")
+					print("Malformed DCC SEND request, ignoring...")
 			if (time.time() - lastPing) > 300:
 				print("Connection timed out.")
 				break
+
 """ A ParseThread searches an XDCC bot's packlist
 	for packs that match user-specified keywords."""
 class ParseThread(Thread):
@@ -126,7 +142,7 @@ class ParseThread(Thread):
 			for line in f:
 				try:
 					(pack, dls, size, name) = [t(s) for t,s in zip((str,int,str,str),
-					re.search('(\S+)[ ]+(\d+)x \[([^\[^\]]+)\] ([^"]+)\n', line).groups())]
+					re.search('(\S+)[ ]+(\d+)x \[([^\[^\]]+)\] ([^"^\n]+)', line).groups())]
 					for s in self.series:
 						goodCandidate = True
 						for kw in s:
@@ -134,18 +150,22 @@ class ParseThread(Thread):
 								goodCandidate = False
 								break
 						if goodCandidate:
-							print(name + " looks like a good candidate.")
+							if __debug__:
+								print(name + " looks like a good candidate.")
 							if not os.path.isfile(name):
+								print("Requesting pack " + pack + " " + name)
 								self.ircConnection.msg(self.bot, "XDCC SEND %s" % pack)
 								time.sleep(20) # wait 20 sec so we aren't spamming the bot
 								sleepTime -= 20
 							else:
-								print("File already exists.")
+								if __debug__:
+									print("File already exists.")
 				except:
 					continue
 			f.close()
 			print("Finished checking for packs.")
 			time.sleep(sleepTime)
+
 """	An IRCConnection acts as the 'command thread'.
 	It starts a ListenerThread so it doesn't have
 	to worry about 'blocking' recv calls."""
@@ -161,7 +181,6 @@ class IRCConnection:
 		self.connected = False
 		self.listenerThread = ListenerThread(self)
 		self.connect()
-
 	def connect(self):
 		while not self.connected:
 			try:
@@ -186,8 +205,14 @@ class IRCConnection:
 con = IRCConnection("irc.rizon.net", 6667, "roughneck")
 # A bot I use often on the rizon network
 gin = "Ginpachi-Sensei"
-# Fill in keywords to look for each series
+# Fill in keywords to search for regarding each series
 series = [["Anime X","[Doki]","01"], # Anime X episode 01 by Doki
 	["Anime Y","[HorribleSubs]"]] # All episodes of Anime Y by HorribleSubs
 # ParseThread will parse the bot's packlist every 3 hours looking for packs that fit the keyword set
 ParseThread(con, gin, "Gin.txt", series).start()
+while True:
+	tmp = input("")
+	# when user types in cmd
+	if tmp == "cmd":
+		# evaluate the next input
+		eval(input("> "))
