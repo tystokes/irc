@@ -4,21 +4,14 @@
 	A bot able to accept dcc transfers using the irc protocol
 	Written for python 3.
 """
-import math
-import sys
-import socket
-import string
-import os
-import platform
-import time
-import threading
-import struct
-import re
-import codecs
+import math, sys, socket, string, os, platform, time, threading, struct
+import re, codecs, logging
 from threading import Thread
 
+logging.basicConfig(filename='irc.log', level=logging.INFO)
+
 """	Converts a string to bytes with a UTF-8 encoding
-	the bytes are then sent over the socket."""
+	the bytes are then sent over the socket. """
 def send(socket, string):
 	socket.send(bytes(string, "UTF-8"))
 
@@ -38,7 +31,7 @@ def convertSize(size):
 		return "0 B"
 
 """	A DCCThread handles a DCC SEND request by
-	opening up the specified port and receiving the file."""
+	opening up the specified port and receiving the file. """
 class DCCThread(Thread):
 	def __init__(self, filename, host, port, filesize):
 		Thread.__init__(self)
@@ -57,26 +50,25 @@ class DCCThread(Thread):
 			if self.shouldRename():
 				continue
 			self.sock.close()
-			return	
-		# Overwrite file
-		with open(self.filename, "w") as f:
-			f.write(str())
-		f.close()
+			return
+		print("Downloading: " + self.filename + " ["
+			+ convertSize(self.filesize) + "]")
 		totalBytes = 0
-		print("Downloading: " + self.filename + " [" + convertSize(self.filesize) + "]")
 		try:
-			with open(self.filename, "ab") as f:
+			with open(self.filename, "wb") as f:
 				while totalBytes != self.filesize:
 					tmp = self.sock.recv(4096)
 					totalBytes += len(tmp)
 					if len(tmp) <= 0:
 						print("DCC error: Socked closed.")
+						logging.warning("DCC error: Socked closed.")
 						break
-					# Append to file
 					f.write(tmp)
 			f.close()
 		except:
-			raise
+			logging.warning("Exception occurred during file writing.")
+			self.sock.close()
+			return
 		self.sock.close()
 		print("Transfer of " + self.filename + " complete.")
 	def shouldOverwrite(self): # Perhaps take in user input?
@@ -87,7 +79,7 @@ class DCCThread(Thread):
 		return False
 
 """	A ListenerThread blocks until it receives bytes on the irc socket.
-	It then attempts to respond according to normal irc protocol."""
+	It then attempts to respond according to normal irc protocol. """
 class ListenerThread(Thread):
 	def __init__(self, ircConnection):
 		Thread.__init__(self)
@@ -98,31 +90,31 @@ class ListenerThread(Thread):
 		lastPing = time.time()
 		while not self.die:
 			data = str(irc.recv(1024), encoding = "UTF-8")
+			logging.info(data)
 			if len(data) == 0:
 				print("Connection to server lost.")
 				break
-			if data.find("PING") != -1:
+			elif data.find("PING") != -1:
 				send(irc, "PONG " + data.split()[1] + "\r\n")
 				lastPing = time.time()
-				continue
-			print("Received=" + data, end="")
-			if data.find("VERSION") != -1:
+			elif data.find("VERSION") != -1:
 				send(irc, "VERSION irssi v0.8.12 \r\n")
-			if data.find("DCC SEND") != -1:
+			elif data.find("DCC SEND") != -1:
 				try:
 					(filename, ip, port, filesize) = [t(s) for t,s in zip((str,int,int,int),
-						re.search('DCC SEND \"*([^"]+)\"* (\d+) (\d+) (\d+)',data).groups())]
+					re.search('DCC SEND \"*([^"]+)\"* (\d+) (\d+) (\d+)',data).groups())]
 					packedValue = struct.pack('!I', ip)
 					host = socket.inet_ntoa(packedValue)
 					DCCThread(filename, host, port, filesize).start()
 				except:
-					print("Malformed DCC SEND request, ignoring...")
+					logging.warning("Malformed DCC SEND request, ignoring...")
 			if (time.time() - lastPing) > 300:
 				print("Connection timed out.")
+				logging.warning("Connection timed out.")
 				break
 
 """ A ParseThread searches an XDCC bot's packlist
-	for packs that match user-specified keywords."""
+	for packs that match user-specified keywords. """
 class ParseThread(Thread):
 	def __init__(self, ircConnection, bot, filename, series):
 		Thread.__init__(self)
@@ -134,41 +126,46 @@ class ParseThread(Thread):
 	def run(self):
 		while not self.die:
 			sleepTime = 60*60*3
-			print("Checking for packs. " + time.asctime(time.localtime()))
+			pack_msg = "Checking for packs. " + time.asctime(time.localtime())
+			print(pack_msg)
+			logging.info(pack_msg)
 			self.ircConnection.msg(self.bot, "XDCC SEND #1")
 			time.sleep(5)
 			sleepTime -= 5
 			f = codecs.open(self.filename, "r", "utf-8")
 			for line in f:
+				(pack, dls, size, name) = (None, None, None, None)
 				try:
 					(pack, dls, size, name) = [t(s) for t,s in zip((str,int,str,str),
 					re.search('(\S+)[ ]+(\d+)x \[([^\[^\]]+)\] ([^"^\n]+)', line).groups())]
-					for s in self.series:
-						goodCandidate = True
-						for kw in s:
-							if name.find(kw) == -1:
-								goodCandidate = False
-								break
-						if goodCandidate:
-							if __debug__:
-								print(name + " looks like a good candidate.")
-							if not os.path.isfile(name):
-								print("Requesting pack " + pack + " " + name)
-								self.ircConnection.msg(self.bot, "XDCC SEND %s" % pack)
-								time.sleep(20) # wait 20 sec so we aren't spamming the bot
-								sleepTime -= 20
-							else:
-								if __debug__:
-									print("File already exists.")
 				except:
 					continue
+				for s in self.series:
+					goodCandidate = True
+					for kw in s:
+						if name.find(kw) == -1:
+							goodCandidate = False
+							break
+					if not goodCandidate:
+						continue
+					logging.debug("candidate: " + name)
+					if not os.path.isfile(name):
+						req_msg = "Requesting pack " + pack + " " + name
+						print(req_msg)
+						logging.info(req_msg)
+						self.ircConnection.msg(self.bot, "XDCC SEND %s" % pack)
+						time.sleep(20) # wait 20 sec so we aren't spamming the bot
+						sleepTime -= 20
+					else:
+						logging.debug("File already exists.")
 			f.close()
 			print("Finished checking for packs.")
+			logging.info("Finished checking for packs.")
 			time.sleep(sleepTime)
 
 """	An IRCConnection acts as the 'command thread'.
 	It starts a ListenerThread so it doesn't have
-	to worry about 'blocking' recv calls."""
+	to worry about 'blocking' recv calls. """
 class IRCConnection:
 	def __init__(self, network, port, nick):
 		self.host = network
@@ -195,7 +192,7 @@ class IRCConnection:
 				self.connected = True
 			except socket.error:
 				time.sleep(5)
-				print("Connection failed... retrying.")
+				logger.warning("Connection failed... retrying.")
 				continue
 	def msg(self, who, what):
 		send(self.sock, "PRIVMSG %s :%s\r\n" % (who, what))
