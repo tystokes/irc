@@ -143,7 +143,7 @@ class ParseThread(Thread):
 				for s in self.series:
 					goodCandidate = True
 					for kw in s:
-						if name.find(kw) == -1:
+						if not re.match("[^\"]*" + kw + "[^\"]*", name):
 							goodCandidate = False
 							break
 					if not goodCandidate:
@@ -203,8 +203,13 @@ con = IRCConnection("irc.rizon.net", 6667, "roughneck")
 # A bot I use often on the rizon network
 gin = "Ginpachi-Sensei"
 # Fill in keywords to search for regarding each series
-series = [["Anime X","[Doki]","01"], # Anime X episode 01 by Doki
-	["Anime Y","[HorribleSubs]"]] # All episodes of Anime Y by HorribleSubs
+# now matches as if it's a regular expression
+# see http://docs.python.org/3.3/library/re.html
+# so be sure to include '\' in front of things like '[',']','(',')', etc...
+series = [
+	["\[Doki\] Anime A[^^]*\[720p\]"] # All episodes of Anime A by Doki in 720p
+	["Anime X","\[Doki\]","01"], # Anime X episode 01 by Doki
+	["Anime Y","\[HorribleSubs\]"]] # All episodes of Anime Y by HorribleSubs
 # ParseThread will parse the bot's packlist every 3 hours looking for packs that fit the keyword set
 ParseThread(con, gin, "Gin.txt", series).start()
 while True:
