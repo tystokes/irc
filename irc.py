@@ -83,10 +83,10 @@ class DCCThread(Thread):
 class ListenerThread(Thread):
 	def __init__(self, ircConnection):
 		Thread.__init__(self)
-		self.ircConnection = ircConnection
+		self.ircCon = ircConnection
 		self.die = False
 	def run(self):
-		irc = self.ircConnection.sock
+		irc = self.ircCon.sock
 		lastPing = time.time()
 		while not self.die:
 			data = str(irc.recv(1024), encoding = "UTF-8")
@@ -101,8 +101,16 @@ class ListenerThread(Thread):
 				send(irc, "VERSION irssi v0.8.12 \r\n")
 			elif data.find("DCC SEND") != -1:
 				try:
-					(filename, ip, port, filesize) = [t(s) for t,s in zip((str,int,int,int),
-					re.search('DCC SEND \"*([^"]+)\"* (\d+) (\d+) (\d+)',data).groups())]
+					(sender, filename, ip, port, filesize) = [t(s) for t,s in zip((str,str,int,int,int),
+					re.search(':([^!]+)![^!]+DCC SEND ([^"]+) (\d+) (\d+) (\d+)',data).groups())]
+					try:
+						self.ircCon.packlistLock.acquire()
+						if self.ircCon.catchPacklist[sender] == "yes":
+							self.ircCon.packlists[sender] = filename
+							self.ircCon.catchPacklist[sender] = "no"
+						self.ircCon.packlistLock.release()
+					except KeyError:
+						self.ircCon.packlistLock.release()
 					packedValue = struct.pack('!I', ip)
 					host = socket.inet_ntoa(packedValue)
 					DCCThread(filename, host, port, filesize).start()
@@ -116,11 +124,11 @@ class ListenerThread(Thread):
 """ A ParseThread searches an XDCC bot's packlist
 	for packs that match user-specified keywords. """
 class ParseThread(Thread):
-	def __init__(self, ircConnection, bot, filename, series):
+	def __init__(self, ircConnection, bot, series):
 		Thread.__init__(self)
-		self.filename = filename
+		self.filename = None
 		self.bot = bot
-		self.ircConnection = ircConnection
+		self.ircCon = ircConnection
 		self.die = False
 		self.series = series
 	def run(self):
@@ -129,9 +137,25 @@ class ParseThread(Thread):
 			pack_msg = "Checking for packs. " + time.asctime(time.localtime())
 			print(pack_msg)
 			logging.info(pack_msg)
-			self.ircConnection.msg(self.bot, "XDCC SEND #1")
+			try:
+				self.ircCon.packlists[self.bot]
+			except KeyError:
+				self.ircCon.packlistLock.acquire()
+				self.ircCon.catchPacklist[self.bot] = "yes"
+				self.ircCon.packlistLock.release()
+			self.ircCon.msg(self.bot, "XDCC SEND #1")
 			time.sleep(5)
 			sleepTime -= 5
+			while self.filename == None:
+				try:
+					self.ircCon.packlistLock.acquire()
+					self.filename = self.ircCon.packlists[self.bot]
+					self.ircCon.packlistLock.release()
+					break
+				except KeyError:
+					self.ircCon.packlistLock.release()
+					time.sleep(5)
+					sleepTime -= 5
 			f = codecs.open(self.filename, "r", "utf-8")
 			for line in f:
 				(pack, dls, size, name) = (None, None, None, None)
@@ -153,7 +177,7 @@ class ParseThread(Thread):
 						req_msg = "Requesting pack " + pack + " " + name
 						print(req_msg)
 						logging.info(req_msg)
-						self.ircConnection.msg(self.bot, "XDCC SEND %s" % pack)
+						self.ircCon.msg(self.bot, "XDCC SEND %s" % pack)
 						time.sleep(20) # wait 20 sec so we aren't spamming the bot
 						sleepTime -= 20
 					else:
@@ -178,6 +202,13 @@ class IRCConnection:
 		self.connected = False
 		self.listenerThread = ListenerThread(self)
 		self.connect()
+		# stores the filenames of the packlists for each bot
+		# assuming bot names are unique and, on an irc server, they are
+		self.packlists = dict()
+		# stores whether or not to catch the packlist on the next DCC SEND from this bot
+		self.catchPacklist = dict()
+		# A lock for accessing self.packlists and self.catchPacklist between threads
+		self.packlistLock = threading.RLock()
 	def connect(self):
 		while not self.connected:
 			try:
@@ -211,7 +242,7 @@ series = [
 	["Anime X","\[Doki\]","01"], # Anime X episode 01 by Doki
 	["Anime Y","\[HorribleSubs\]"]] # All episodes of Anime Y by HorribleSubs
 # ParseThread will parse the bot's packlist every 3 hours looking for packs that fit the keyword set
-ParseThread(con, gin, "Gin.txt", series).start()
+ParseThread(con, gin, series).start()
 while True:
 	tmp = input("")
 	# when user types in cmd
