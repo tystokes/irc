@@ -136,7 +136,7 @@ class ListenerThread(Thread):
 		while not self.die:
 			self.data = str()
 			try:
-				self.data = str(self.ircCon.socket.recv(1024), encoding = "UTF-8", errors="ignore")
+				self.data = str(self.ircCon.socket.recv(512), encoding = "UTF-8", errors="ignore")
 				logInfo(self.data)
 			except UnicodeDecodeError:
 				logging.warning("UnicodeDecodeError in ListenerThread continuing...")
@@ -164,11 +164,6 @@ class ListenerThread(Thread):
 					logInfo("notifying_all response waiters" + bot)
 					self.ircCon.responseConditions[bot].notify_all()
 					self.ircCon.responseConditions[bot].release()
-			# TODO: figure out why this may not necessarily be reliable
-			if (time.time() - lastPing) > 300:
-				print("Connection timed out.")
-				logging.warning("Connection timed out.")
-				break
 		return
 	""" Parse self.data for a valid DCC SEND request. """
 	def parseSend(self):
@@ -347,7 +342,7 @@ fanService = "A|FanserviceBot"
 # now matches as if it's a regular expression
 # so be sure to include '\' in front of things like '[',']','(',')', etc...
 series = [
-	["\[Doki\] Anime A[^^]*\[720p\]"] # All episodes of Anime A by Doki in 720p
+	["\[Doki\] Anime A[^^]*\[720p\]"], # All episodes of Anime A by Doki in 720p
 	["Anime X","\[Doki\]","01"], # Anime X episode 01 by Doki
 	["Anime Y","\[HorribleSubs\]"]] # All episodes of Anime Y by HorribleSubs
 
