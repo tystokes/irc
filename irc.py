@@ -21,9 +21,7 @@ printLock = threading.Lock()
 """	Converts a string to bytes with a UTF-8 encoding
 	the bytes are then sent over the socket. """
 def send(ircConnection, string):
-	ircConnection.socketLock.acquire()
 	ircConnection.socket.send(bytes(string, "UTF-8"))
-	ircConnection.socketLock.release()
 
 """ Acquires the print lock then both logs the info and prints it """
 def printAndLogInfo(string):
@@ -144,13 +142,13 @@ class ListenerThread(Thread):
 			if len(self.data) == 0:
 				lockPrint("Connection to server lost.")
 				break
-			if self.data.find("PING") != -1:
-				split = self.data.split()
-				for i in range(0, len(split) - 1):
-					if split[i] == "PING":
-						send(self.ircCon, "PONG " + split[i+1] + "\r\n")
-						lastPing = time.time()
-						break
+			tmp = re.search("PING (:[^\r^\n]+)\r\n", self.data)
+			if tmp:
+				try :
+					send(self.ircCon, "PONG " + tmp.group(1) + "\r\n")
+					lastPing = time.time()
+				except:
+					pass
 			if re.search("[^\"]*PRIVMSG " + self.ircCon.nick + " :\x01VERSION\x01", self.data):
 				send(self.ircCon, "VERSION irssi v0.8.12 \r\n")
 			if re.search("PRIVMSG " + self.ircCon.nick + " :\x01DCC SEND ", self.data):
@@ -181,27 +179,14 @@ class ListenerThread(Thread):
 
 		# unpack the ip to get a proper hostname
 		self.host = socket.inet_ntoa(struct.pack('!I', self.ip))
-		self.shouldCatchPacklist()
 		dcc = DCCThread(self.filename, self.host, self.port, self.filesize)
 		dcc.start()
 		dcc.join()
-		if self.packlistHook:
-			self.ircCon.packlistCondition.acquire()
-			self.ircCon.packlistCondition.notify_all()
-			self.ircCon.packlistCondition.release()
-	"""	Check global packlist data regarding if we should
-		catch the packlist this time around. """
-	def shouldCatchPacklist(self):
-		self.packlistHook = False
-		self.ircCon.packlistLock.acquire()
-		try:
-			if self.ircCon.catchPacklist[self.sender] == "yes":
-				self.ircCon.packlists[self.sender] = self.filename
-				self.ircCon.catchPacklist[self.sender] = "no"
-				self.packlistHook = True
-		except KeyError:
-			pass
-		self.ircCon.packlistLock.release()
+		if self.sender in self.ircCon.packlistConditions:
+			self.ircCon.packlistConditions[self.sender].acquire()
+			self.ircCon.packlists[self.sender] = self.filename
+			self.ircCon.packlistConditions[self.sender].notify_all()
+			self.ircCon.packlistConditions[self.sender].release()
 
 """ A ParseThread searches an XDCC bot's packlist
 	for packs that match user-specified keywords. """
@@ -228,24 +213,17 @@ class ParseThread(Thread):
 		time.sleep(amount)
 		self.sleepTime -= amount
 	def waitOnPacklist(self):
-			self.ircCon.packlistLock.acquire()
-			self.ircCon.catchPacklist[self.bot] = "yes"
-			self.ircCon.packlistLock.release()
 			self.ircCon.msg(self.bot, "XDCC SEND #1")
 			self.filename = None
-			while self.filename == None:
-				self.ircCon.packlistCondition.acquire()
-				self.ircCon.packlistCondition.wait()
-				if self.ircCon.catchPacklist[self.bot] == "no":
-					self.filename = self.ircCon.packlists[self.bot]
-					logInfo(self.filename + " received, Thread carrying on.")
-					self.ircCon.packlistCondition.release()
-					break
-				else:
-					self.ircCon.packlistCondition.release()
-					continue
+			if self.bot not in self.ircCon.packlistConditions:
+				self.ircCon.packlistConditions[self.bot] = threading.Condition(threading.Lock())
+			self.ircCon.packlistConditions[self.bot].acquire()
+			self.ircCon.packlistConditions[self.bot].wait()
+			self.filename = self.ircCon.packlists[self.bot]
+			logInfo(self.filename + " received, Thread carrying on.")
+			self.ircCon.packlistConditions[self.bot].release()
 	def parseFile(self):
-		f = io.open(self.filename, mode= "r", encoding = "UTF-8", errors = "ignore")
+		f = io.open(self.filename, mode = "r", encoding = "UTF-8", errors = "ignore")
 		for line in f:
 			(pack, dls, size, name) = (None, None, None, None)
 			try:
@@ -293,16 +271,10 @@ class IRCConnection:
 		# stores the filenames of the packlists for each bot
 		# assuming bot names are unique and, on an irc server, they are
 		self.packlists = dict()
-		# stores whether or not to catch the packlist on the next DCC SEND from this bot
-		self.catchPacklist = dict()
-		# A lock for accessing self.packlists and self.catchPacklist between threads
-		self.packlistLock = threading.Lock()
-		self.packlistCondition = threading.Condition(self.packlistLock)
+		# stores packlist cv's for each bot
+		self.packlistConditions = dict()
+		# stores response cv's for each bot
 		self.responseConditions = dict()
-
-		# Not sure if needed but to make sure multiple threads
-		# do not send data across a socket at the same time.
-		self.socketLock = threading.Lock()
 		
 		""" After assigning variables start up a listener thread
 			and attempt to connect to server """
