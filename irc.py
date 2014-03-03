@@ -28,14 +28,29 @@ def send(ircConnection, string):
 """ Acquires the print lock then both logs the info and prints it """
 def printAndLogInfo(string):
 	printLock.acquire()
-	logging.info(string)
-	print(string)
+	try:
+		logging.info(string)
+		print(string)
+	except:
+		pass
 	printLock.release()
 
-""" Acquires the print lock then both then prints the string """
+""" Acquires the print lock then prints the string """
 def lockPrint(string):
 	printLock.acquire()
-	print(string)
+	try:
+		print(string)
+	except:
+		pass
+	printLock.release()
+
+""" Acquires the print lock then logs the string """
+def logInfo(string):
+	printLock.acquire()
+	try:
+		logging.info(string)
+	except:
+		pass
 	printLock.release()
 
 """ Human readable filesize conversion """
@@ -79,19 +94,19 @@ class DCCThread(Thread):
 			filesystemLock.release()
 			return
 
-		lockPrint("Downloading: " + self.filename + " [" + convertSize(self.filesize) + "]")
+		lockPrint("Downloading " + self.filename + " [" + convertSize(self.filesize) + "]")
 		totalBytes = 0
 		try:
-			with open(self.filename, "wb") as f:
-				filesystemLock.release()
-				while totalBytes != self.filesize:
-					tmp = self.socket.recv(4096)
-					totalBytes += len(tmp)
-					if len(tmp) <= 0:
-						lockPrint("DCC error: Socked closed.")
-						logging.warning("DCC error: Socked closed.")
-						break
-					f.write(tmp)
+			f = open(self.filename, "wb")
+			filesystemLock.release()
+			while totalBytes != self.filesize:
+				tmp = self.socket.recv(4096)
+				totalBytes += len(tmp)
+				if len(tmp) <= 0:
+					lockPrint("DCC error: Socked closed.")
+					logging.warning("DCC error: Socked closed.")
+					break
+				f.write(tmp)
 			f.close()
 		except:
 			logging.warning("Exception occurred during file writing.")
@@ -119,28 +134,36 @@ class ListenerThread(Thread):
 	def run(self):
 		lastPing = time.time()
 		while not self.die:
+			self.data = str()
 			try:
-				self.ircCon.socketLock.acquire()
 				self.data = str(self.ircCon.socket.recv(1024), encoding = "UTF-8", errors="ignore")
+				logInfo(self.data)
 			except UnicodeDecodeError:
 				logging.warning("UnicodeDecodeError in ListenerThread continuing...")
 				continue
-			finally:
-				self.ircCon.socketLock.release()
-			logging.info(self.data)
 			if len(self.data) == 0:
 				lockPrint("Connection to server lost.")
 				break
 			if self.data.find("PING") != -1:
-				printLock.acquire()
-				logging.info("PING received... sending PONG " + self.data.split()[1] + "\r\n")
-				printLock.release()
-				send(self.ircCon, "PONG " + self.data.split()[1] + "\r\n")
-				lastPing = time.time()
+				split = self.data.split()
+				for i in range(0, len(split) - 1):
+					if split[i] == "PING":
+						send(self.ircCon, "PONG " + split[i+1] + "\r\n")
+						lastPing = time.time()
+						break
 			if re.search("[^\"]*PRIVMSG " + self.ircCon.nick + " :\x01VERSION\x01", self.data):
 				send(self.ircCon, "VERSION irssi v0.8.12 \r\n")
-			if re.search("PRIVMSG roughneck :\x01DCC SEND ", self.data):
+			if re.search("PRIVMSG " + self.ircCon.nick + " :\x01DCC SEND ", self.data):
 				self.parseSend()
+			tmp = re.search(":([^!^:]+)![^!^:]+NOTICE " + self.ircCon.nick + " :[*]{2}[^:]+queue", self.data)
+			if tmp:
+				bot = tmp.group(1)
+				logInfo("queue notice: " + bot)
+				if bot in self.ircCon.responseConditions:
+					self.ircCon.responseConditions[bot].acquire()
+					logInfo("notifying_all response waiters" + bot)
+					self.ircCon.responseConditions[bot].notify_all()
+					self.ircCon.responseConditions[bot].release()
 			# TODO: figure out why this may not necessarily be reliable
 			if (time.time() - lastPing) > 300:
 				print("Connection timed out.")
@@ -154,6 +177,13 @@ class ListenerThread(Thread):
 			re.search(':([^!^:]+)![^!]+DCC SEND \"*([^"]+)\"* (\d+) (\d+) (\d+)', self.data).groups())]
 		except:
 			logging.warning("Malformed DCC SEND request, ignoring...")
+		
+		if self.sender in self.ircCon.responseConditions:
+			self.ircCon.responseConditions[self.sender].acquire()
+			self.ircCon.responseConditions[self.sender].notify_all()
+			self.ircCon.responseConditions[self.sender].release()
+
+
 		# unpack the ip to get a proper hostname
 		self.host = socket.inet_ntoa(struct.pack('!I', self.ip))
 		self.shouldCatchPacklist()
@@ -192,11 +222,11 @@ class ParseThread(Thread):
 		self.sleepTime = None
 	def run(self):
 		while not self.die:
-			self.sleepTime = 60*60*3
-			printAndLogInfo("Checking for packs. " + time.asctime(time.localtime()) )
+			self.sleepTime = 60*60*3 # 3 hours
+			printAndLogInfo(time.asctime(time.localtime()) + " - Checking " + self.bot +" for packs.")
 			self.waitOnPacklist()
 			self.parseFile()
-			printAndLogInfo("Finished checking for packs.")
+			printAndLogInfo("Finished checking " + self.bot + " for packs.")
 			time.sleep(self.sleepTime)
 		return
 	def sleep(self, amount):
@@ -207,12 +237,13 @@ class ParseThread(Thread):
 			self.ircCon.catchPacklist[self.bot] = "yes"
 			self.ircCon.packlistLock.release()
 			self.ircCon.msg(self.bot, "XDCC SEND #1")
+			self.filename = None
 			while self.filename == None:
 				self.ircCon.packlistCondition.acquire()
 				self.ircCon.packlistCondition.wait()
 				if self.ircCon.catchPacklist[self.bot] == "no":
 					self.filename = self.ircCon.packlists[self.bot]
-					lockPrint(self.filename + " received, Thread carrying on.")
+					logInfo(self.filename + " received, Thread carrying on.")
 					self.ircCon.packlistCondition.release()
 					break
 				else:
@@ -230,7 +261,7 @@ class ParseThread(Thread):
 			for s in self.series:
 				goodCandidate = True
 				for kw in s:
-					if not re.match("[^\"]*" + kw + "[^\"]*", name):
+					if not re.search(kw, name):
 						goodCandidate = False
 						break
 				if not goodCandidate:
@@ -239,9 +270,13 @@ class ParseThread(Thread):
 				filesystemLock.acquire()
 				if not os.path.isfile(name):
 					printAndLogInfo("Requesting pack " + pack + " " + name)
+					self.ircCon.responseConditions[self.bot] = threading.Condition(threading.Lock())
+					self.ircCon.responseConditions[self.bot].acquire()
 					self.ircCon.msg(self.bot, "XDCC SEND %s" % pack)
 					filesystemLock.release()
-					self.sleep(20)
+					self.ircCon.responseConditions[self.bot].wait()
+					self.ircCon.responseConditions[self.bot].release()
+					del self.ircCon.responseConditions[self.bot]
 				else:
 					filesystemLock.release()
 					logging.debug("File already exists.")
@@ -268,6 +303,8 @@ class IRCConnection:
 		# A lock for accessing self.packlists and self.catchPacklist between threads
 		self.packlistLock = threading.Lock()
 		self.packlistCondition = threading.Condition(self.packlistLock)
+		self.responseConditions = dict()
+
 		# Not sure if needed but to make sure multiple threads
 		# do not send data across a socket at the same time.
 		self.socketLock = threading.Lock()
