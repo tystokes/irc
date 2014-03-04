@@ -154,7 +154,7 @@ class IRCParseThread(Thread):
 		if tmp:
 			send(self.ircCon, "PONG " + tmp.group(1) + "\r\n")
 			lastPing = time.time()
-		tmp = re.search("Message of the Day", self.data)
+		tmp = re.search("Welcome to the[^:]+Internet Relay Chat Network " + self.ircCon.nick , self.data)
 		if tmp:
 			if self.ircCon.connectedCondition != None:
 				self.ircCon.connectedCondition.acquire()
