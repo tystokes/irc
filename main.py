@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import irc, time
+import irc
 
 """ irc usage example """
 
@@ -21,8 +21,8 @@ series = [
 	["Anime Y","\[HorribleSubs\]"]] # All episodes of Anime Y by HorribleSubs
 
 # fanService bot requires that you join #nibl
-irc.send(con, "Join #nibl\r\n")
-time.sleep(1)
+# blocks until channel is joined
+con.join("nibl")
 
 # ParseThread will parse the bot's packlist every 3 hours looking for packs that fit the keyword set
 # you may parse multiple bots at once searching for the same or different files

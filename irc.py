@@ -154,6 +154,19 @@ class IRCParseThread(Thread):
 		if tmp:
 			send(self.ircCon, "PONG " + tmp.group(1) + "\r\n")
 			lastPing = time.time()
+		tmp = re.search("Message of the Day", self.data)
+		if tmp:
+			if self.ircCon.connectedCondition != None:
+				self.ircCon.connectedCondition.acquire()
+				self.ircCon.connectedCondition.notify()
+				self.ircCon.connectedCondition.release()
+		tmp = re.search(":" + self.ircCon.nick + "![^:^!]+ JOIN :#([^\r^\n]+)\r\n", self.data)
+		if tmp:
+			chan = tmp.group(1).lower()
+			if chan in self.ircCon.joinConditions:
+				self.ircCon.joinConditions[chan].acquire()
+				self.ircCon.joinConditions[chan].notify()
+				self.ircCon.joinConditions[chan].release()
 		# check for DCC VERSION request
 		tmp = re.search("[^\"]*PRIVMSG " + self.ircCon.nick + " :\x01VERSION\x01", self.data)
 		if tmp:
@@ -274,7 +287,8 @@ class IRCConnection:
 		self.realname = nick
 		self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.socket.settimeout(300)
-		self.connected = False
+		# cv for notifying when you are connected
+		self.connectedCondition = threading.Condition(threading.Lock())
 		# stores the filenames of the packlists for each bot
 		# assuming bot names are unique and, on an irc server, they are
 		self.packlists = dict()
@@ -282,26 +296,35 @@ class IRCConnection:
 		self.packlistConditions = dict()
 		# stores response cv's for each bot
 		self.responseConditions = dict()
+		# stores join cv's for each channel
+		self.joinConditions = dict()
 		
 		""" After assigning variables start up a listener thread
 			and attempt to connect to server """
 		self.listenerThread = ListenerThread(self)
 		self.connect()
 	def connect(self):
-		while not self.connected:
-			try:
-				self.socket.connect((self.host, self.port))
-				self.listenerThread.start()
-				# supply the standard nick and user info to the server
-				send(self, "NICK %s\r\n" % self.nick)
-				send(self, "USER %s %s * :%s\r\n"
-					% (self.ident, self.host, self.realname))
-				# sleep to make sure nick/usr is registered
-				time.sleep(1)
-				self.connected = True
-			except socket.error:
-				time.sleep(5)
-				logger.warning("Connection failed... retrying.")
-				continue
+		try:
+			self.socket.connect((self.host, self.port))
+			# supply the standard nick and user info to the server
+			send(self, "NICK %s\r\n" % self.nick)
+			send(self, "USER %s %s * :%s\r\n"
+				% (self.ident, self.host, self.realname))
+			self.connectedCondition.acquire()
+			self.listenerThread.start()
+			self.connectedCondition.wait()
+			self.connectedCondition.release()
+			self.connectedCondition = None
+		except socket.error:
+			logger.warning("Connection failed.")
 	def msg(self, who, what):
 		send(self, "PRIVMSG %s :%s\r\n" % (who, what))
+	def join(self, chan):
+		chan = re.sub("[#]", "", chan)
+		chan = chan.lower()
+		self.joinConditions[chan] = threading.Condition(threading.Lock())
+		self.joinConditions[chan].acquire()
+		send(self, "JOIN #%s\r\n" % chan)
+		self.joinConditions[chan].wait()
+		self.joinConditions[chan].release()
+		del self.joinConditions[chan]
