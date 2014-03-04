@@ -25,30 +25,24 @@ def send(ircConnection, string):
 
 """ Acquires the print lock then both logs the info and prints it """
 def printAndLogInfo(string):
+	string.encode("UTF-8", "ignore")
 	printLock.acquire()
-	try:
-		logging.info(string)
-		print(string)
-	except:
-		pass
+	logging.info(string)
+	print(string)
 	printLock.release()
 
 """ Acquires the print lock then prints the string """
 def lockPrint(string):
+	string.encode("UTF-8", "ignore")
 	printLock.acquire()
-	try:
-		print(string)
-	except:
-		pass
+	print(string)
 	printLock.release()
 
 """ Acquires the print lock then logs the string """
 def logInfo(string):
+	string.encode("UTF-8", "ignore")
 	printLock.acquire()
-	try:
-		logging.info(string)
-	except:
-		pass
+	logging.info(string)
 	printLock.release()
 
 """ Human readable filesize conversion """
@@ -56,7 +50,7 @@ def convertSize(size):
 	names = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"]
 	i = int(math.log(size, 1024) // 1)
 	if i >= len(names):
-		i = len(names) - 1
+		i = int(len(names) - 1)
 	p = 1024 ** i
 	s = size/p
 	if s >= 10:
@@ -81,8 +75,9 @@ class DCCThread(Thread):
 		self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.socket.settimeout(200)
 		self.socket.connect((self.host, self.port))
-		# File conflict resolution
+		# make sure we are the only thread looking at the filesystem
 		filesystemLock.acquire()
+		# File conflict resolution
 		while os.path.isfile(self.filename):
 			if self.shouldOverwrite():
 				break
@@ -91,28 +86,36 @@ class DCCThread(Thread):
 			self.socket.close()
 			filesystemLock.release()
 			return
-
 		lockPrint("Downloading " + self.filename + " [" + convertSize(self.filesize) + "]")
-		totalBytes = 0
+		f = None
 		try:
 			f = open(self.filename, "wb")
+		except OSError:
+			self.socket.close()
+			return
+		finally:
+			# we should be good to let other threads look at the filesystem
 			filesystemLock.release()
-			while totalBytes != self.filesize:
-				tmp = self.socket.recv(4096)
-				totalBytes += len(tmp)
+		try:
+			bytesReceived = 0
+			while bytesReceived != self.filesize:
+				tmp = None
+				try:
+					tmp = self.socket.recv(4096)
+				except:
+					logging.warning("Exception occurred during DCC recv.")
+					self.socket.close()
+					return
+				bytesReceived += len(tmp)
 				if len(tmp) <= 0:
 					lockPrint("DCC error: Socked closed.")
 					logging.warning("DCC error: Socked closed.")
 					break
 				f.write(tmp)
 			f.close()
+			lockPrint("Transfer of " + self.filename + " complete.")
 		except:
 			logging.warning("Exception occurred during file writing.")
-			self.socket.close()
-			return
-		self.socket.close()
-		lockPrint("Transfer of " + self.filename + " complete.")
-		return
 	def shouldOverwrite(self): # Perhaps take in user input?
 		if re.search('.txt\Z', self.filename):
 			return True
@@ -121,76 +124,84 @@ class DCCThread(Thread):
 		return False
 
 """	A ListenerThread blocks until it receives bytes on the irc socket.
-	It then attempts to respond according to normal irc protocol. """
+	It then spawns a IRCParseThread that handles parsing the data. """
 class ListenerThread(Thread):
 	def __init__(self, ircConnection):
 		Thread.__init__(self)
 		self.ircCon = ircConnection
 		self.die = False
-		self.data = str()
 	""" Main parse loop receives data and parses it for requests. """
 	def run(self):
 		lastPing = time.time()
 		while not self.die:
-			self.data = str()
-			try:
-				self.data = str(self.ircCon.socket.recv(512), encoding = "UTF-8", errors="ignore")
-				logInfo(self.data)
-			except UnicodeDecodeError:
-				logging.warning("UnicodeDecodeError in ListenerThread continuing...")
-				continue
-			if len(self.data) == 0:
+			data = str(self.ircCon.socket.recv(512), encoding = "UTF-8", errors = "ignore")
+			# recv returns 0 only when the connection is lost
+			if len(data) == 0:
 				lockPrint("Connection to server lost.")
 				break
-			tmp = re.search("PING (:[^\r^\n]+)\r\n", self.data)
-			if tmp:
-				try :
-					send(self.ircCon, "PONG " + tmp.group(1) + "\r\n")
-					lastPing = time.time()
-				except:
-					pass
-			if re.search("[^\"]*PRIVMSG " + self.ircCon.nick + " :\x01VERSION\x01", self.data):
-				send(self.ircCon, "VERSION irssi v0.8.12 \r\n")
-			if re.search("PRIVMSG " + self.ircCon.nick + " :\x01DCC SEND ", self.data):
-				self.parseSend()
-			tmp = re.search(":([^!^:]+)![^!^:]+NOTICE " + self.ircCon.nick + " :[*]{2}[^:]+queue", self.data)
-			if tmp:
-				bot = tmp.group(1)
-				logInfo("queue notice: " + bot)
-				if bot in self.ircCon.responseConditions:
-					self.ircCon.responseConditions[bot].acquire()
-					logInfo("notifying_all response waiters" + bot)
-					self.ircCon.responseConditions[bot].notify_all()
-					self.ircCon.responseConditions[bot].release()
-		return
+			IRCParseThread(self.ircCon, data).start()
+
+"""	Handles parsing incoming data from the irc socket. """
+class IRCParseThread(Thread):
+	def __init__(self, ircConnection, data):
+		Thread.__init__(self)
+		self.ircCon = ircConnection
+		self.data = data
+	def run(self):
+		logInfo("\"" + self.data + "\"")
+		# check for PING request
+		tmp = re.search("PING (:[^\r^\n]+)\r\n", self.data)
+		if tmp:
+			send(self.ircCon, "PONG " + tmp.group(1) + "\r\n")
+			lastPing = time.time()
+		# check for DCC VERSION request
+		tmp = re.search("[^\"]*PRIVMSG " + self.ircCon.nick + " :\x01VERSION\x01", self.data)
+		if tmp:
+			send(self.ircCon, "VERSION irssi v0.8.12 \r\n")
+		# check for DCC SEND request
+		tmp = re.search("PRIVMSG " + self.ircCon.nick + " :\x01DCC SEND ", self.data)
+		if tmp:
+			self.parseSend()
+		# check if you were added to the queue for a pack
+		tmp = re.search(":([^!^:]+)![^!^:]+NOTICE " + self.ircCon.nick + " :[*]{2}[^:]+queue", self.data)
+		if tmp:
+			bot = tmp.group(1)
+			logInfo("queue notice: " + bot)
+			# notify anyone waiting on the responseCondition for this bot
+			if bot in self.ircCon.responseConditions:
+				self.ircCon.responseConditions[bot].acquire()
+				logInfo("notifying_all response waiters" + bot)
+				self.ircCon.responseConditions[bot].notify_all()
+				self.ircCon.responseConditions[bot].release()
 	""" Parse self.data for a valid DCC SEND request. """
 	def parseSend(self):
+		(sender, filename, ip, port, filesize) = (None, None, None, None, None)
 		try:
-			(self.sender, self.filename, self.ip, self.port, self.filesize) = [t(s) for t,s in zip((str,str,int,int,int),
-			re.search(':([^!^:]+)![^!]+DCC SEND \"*([^"]+)\"* (\d+) (\d+) (\d+)', self.data).groups())]
+			(sender, filename, ip, port, filesize) = [t(s) for t,s in zip((str,str,int,int,int),
+			re.search(':([^!^:]+)![^!]+DCC SEND \"*([^"]+)\"* (\d+) (\d+) (\d+)',self.data).groups())]
 		except:
 			logging.warning("Malformed DCC SEND request, ignoring...")
-		
-		if self.sender in self.ircCon.responseConditions:
-			self.ircCon.responseConditions[self.sender].acquire()
-			self.ircCon.responseConditions[self.sender].notify_all()
-			self.ircCon.responseConditions[self.sender].release()
-
-
+			return
+		# notify anyone waiting on the responseCondition for this bot
+		if sender in self.ircCon.responseConditions:
+			self.ircCon.responseConditions[sender].acquire()
+			self.ircCon.responseConditions[sender].notify_all()
+			self.ircCon.responseConditions[sender].release()
 		# unpack the ip to get a proper hostname
-		self.host = socket.inet_ntoa(struct.pack('!I', self.ip))
-		dcc = DCCThread(self.filename, self.host, self.port, self.filesize)
-		dcc.start()
-		dcc.join()
-		if self.sender in self.ircCon.packlistConditions:
-			self.ircCon.packlistConditions[self.sender].acquire()
-			self.ircCon.packlists[self.sender] = self.filename
-			self.ircCon.packlistConditions[self.sender].notify_all()
-			self.ircCon.packlistConditions[self.sender].release()
+		host = socket.inet_ntoa(struct.pack('!I', ip))
+		dcc = DCCThread(filename, host, port, filesize)
+		dcc.start() # start the thread
+		dcc.join() # wait for the thread to finish
+		# notify anyone waiting on the packlistCondition for this bot
+		if sender in self.ircCon.packlistConditions:
+			self.ircCon.packlistConditions[sender].acquire()
+			self.ircCon.packlists[sender] = filename
+			self.ircCon.packlistConditions[sender].notify_all()
+			self.ircCon.packlistConditions[sender].release()
 
-""" A ParseThread searches an XDCC bot's packlist
+""" A PacklistParsingThread searches an XDCC bot's packlist
 	for packs that match user-specified keywords. """
-class ParseThread(Thread):
+class PacklistParsingThread(Thread):
 	def __init__(self, ircConnection, bot, series):
 		Thread.__init__(self)
 		self.filename = None
@@ -203,18 +214,14 @@ class ParseThread(Thread):
 	def run(self):
 		while not self.die:
 			self.sleepTime = 60*60*3 # 3 hours
+			startTime = time.time()
 			printAndLogInfo(time.asctime(time.localtime()) + " - Checking " + self.bot +" for packs.")
 			self.waitOnPacklist()
 			self.parseFile()
 			printAndLogInfo("Finished checking " + self.bot + " for packs.")
-			time.sleep(self.sleepTime)
-		return
-	def sleep(self, amount):
-		time.sleep(amount)
-		self.sleepTime -= amount
+			time.sleep(self.sleepTime - (time.time() - startTime))
 	def waitOnPacklist(self):
 			self.ircCon.msg(self.bot, "XDCC SEND #1")
-			self.filename = None
 			if self.bot not in self.ircCon.packlistConditions:
 				self.ircCon.packlistConditions[self.bot] = threading.Condition(threading.Lock())
 			self.ircCon.packlistConditions[self.bot].acquire()
@@ -324,5 +331,5 @@ time.sleep(1)
 
 # ParseThread will parse the bot's packlist every 3 hours looking for packs that fit the keyword set
 # you may parse multiple bots at once searching for the same or different files
-ParseThread(con, ginpachi, series).start()
-ParseThread(con, fanService, series).start()
+PacklistParsingThread(con, ginpachi, series).start()
+PacklistParsingThread(con, fanService, series).start()
