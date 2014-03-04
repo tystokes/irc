@@ -25,7 +25,7 @@ def send(ircConnection, string):
 
 """ Acquires the print lock then both logs the info and prints it """
 def printAndLogInfo(string):
-	string.encode("UTF-8", "ignore")
+	string = string.encode("UTF-8", "ignore").decode("UTF-8")
 	printLock.acquire()
 	logging.info(string)
 	print(string)
@@ -33,14 +33,14 @@ def printAndLogInfo(string):
 
 """ Acquires the print lock then prints the string """
 def lockPrint(string):
-	string.encode("UTF-8", "ignore")
+	string = string.encode("UTF-8", "ignore").decode("UTF-8")
 	printLock.acquire()
 	print(string)
 	printLock.release()
 
 """ Acquires the print lock then logs the string """
 def logInfo(string):
-	string.encode("UTF-8", "ignore")
+	string = string.encode("UTF-8", "ignore").decode("UTF-8")
 	printLock.acquire()
 	logging.info(string)
 	printLock.release()
