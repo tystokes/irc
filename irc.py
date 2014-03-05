@@ -8,9 +8,11 @@ import math, sys, socket, string, os, platform, time, threading, struct
 import re, io, logging
 from threading import Thread
 
-# Set us up a log file
-logging.basicConfig(filename='irc.log', level=logging.INFO)
+encoding = sys.getfilesystemencoding()
 
+# Set us up a log file
+logging.getLogger().addHandler(logging.FileHandler(filename = "irc.log", mode = "w", encoding = encoding))
+logging.getLogger().setLevel(logging.INFO)
 # Global filesystem lock so threads don't make false assumptions over filesystem info.
 # Acquired whenever a thread wants to access/use filesystem info (EX: os.path.isfile()).
 filesystemLock = threading.Lock()
@@ -25,24 +27,24 @@ def send(ircConnection, string):
 
 """ Acquires the print lock then both logs the info and prints it """
 def printAndLogInfo(string):
-	string = string.encode("UTF-8", "ignore").decode("UTF-8")
+	s = string.encode(encoding, "replace").decode(encoding, "replace")
 	printLock.acquire()
-	logging.info(string)
-	print(string)
+	logging.info(s)
+	print(s)
 	printLock.release()
 
 """ Acquires the print lock then prints the string """
 def lockPrint(string):
-	string = string.encode("UTF-8", "ignore").decode("UTF-8")
+	s = string.encode(encoding, "replace").decode(encoding, "replace")
 	printLock.acquire()
-	print(string)
+	print(s)
 	printLock.release()
 
 """ Acquires the print lock then logs the string """
 def logInfo(string):
-	string = string.encode("UTF-8", "ignore").decode("UTF-8")
+	s = string.encode(encoding, "replace").decode(encoding, "replace")
 	printLock.acquire()
-	logging.info(string)
+	logging.info(s)
 	printLock.release()
 
 """ Human readable filesize conversion """
@@ -83,6 +85,7 @@ class DCCThread(Thread):
 				break
 			if self.shouldRename():
 				continue
+			lockPrint(self.filename + " already exists, closing socket.")
 			self.socket.close()
 			filesystemLock.release()
 			return
@@ -243,7 +246,13 @@ class PacklistParsingThread(Thread):
 			logInfo(self.filename + " received, Thread carrying on.")
 			self.ircCon.packlistConditions[self.bot].release()
 	def parseFile(self):
-		f = io.open(self.filename, mode = "r", encoding = "UTF-8", errors = "ignore")
+		f = None
+		try :
+			f = open(self.filename, mode = "r", encoding = encoding, errors = "ignore")
+		except OSError:
+			f.close()
+			printAndLogInfo("Unable to open file during parseFile().")
+			return
 		for line in f:
 			(pack, dls, size, name) = (None, None, None, None)
 			try:
