@@ -157,7 +157,7 @@ class IRCParseThread(Thread):
 		if tmp:
 			send(self.ircCon, "PONG " + tmp.group(1) + "\r\n")
 			lastPing = time.time()
-		tmp = re.search("Welcome to the[^:]+Internet Relay Chat Network " + self.ircCon.nick , self.data)
+		tmp = re.search("Welcome to the[^:]+" + self.ircCon.nick , self.data)
 		if tmp:
 			if self.ircCon.connectedCondition != None:
 				self.ircCon.connectedCondition.acquire()
@@ -178,17 +178,6 @@ class IRCParseThread(Thread):
 		tmp = re.search("PRIVMSG " + self.ircCon.nick + " :\x01DCC SEND ", self.data)
 		if tmp:
 			self.parseSend()
-		# check if you were added to the queue for a pack
-		tmp = re.search(":([^!^:]+)![^!^:]+NOTICE " + self.ircCon.nick + " :[*]{2}[^:]+queue", self.data)
-		if tmp:
-			bot = tmp.group(1)
-			logInfo("queue notice: " + bot)
-			# notify anyone waiting on the responseCondition for this bot
-			if bot in self.ircCon.responseConditions:
-				self.ircCon.responseConditions[bot].acquire()
-				logInfo("notifying_all response waiters" + bot)
-				self.ircCon.responseConditions[bot].notify_all()
-				self.ircCon.responseConditions[bot].release()
 	""" Parse self.data for a valid DCC SEND request. """
 	def parseSend(self):
 		(sender, filename, ip, port, filesize) = (None, None, None, None, None)
@@ -198,11 +187,6 @@ class IRCParseThread(Thread):
 		except:
 			logging.warning("Malformed DCC SEND request, ignoring...")
 			return
-		# notify anyone waiting on the responseCondition for this bot
-		if sender in self.ircCon.responseConditions:
-			self.ircCon.responseConditions[sender].acquire()
-			self.ircCon.responseConditions[sender].notify_all()
-			self.ircCon.responseConditions[sender].release()
 		# unpack the ip to get a proper hostname
 		host = socket.inet_ntoa(struct.pack('!I', ip))
 		dcc = DCCThread(filename, host, port, filesize)
@@ -214,6 +198,11 @@ class IRCParseThread(Thread):
 			self.ircCon.packlists[sender] = filename
 			self.ircCon.packlistConditions[sender].notify_all()
 			self.ircCon.packlistConditions[sender].release()
+		# notify anyone waiting on the responseCondition for this bot
+		if sender in self.ircCon.responseConditions:
+			self.ircCon.responseConditions[sender].acquire()
+			self.ircCon.responseConditions[sender].notify_all()
+			self.ircCon.responseConditions[sender].release()
 
 """ A PacklistParsingThread searches an XDCC bot's packlist
 	for packs that match user-specified keywords. """
@@ -235,7 +224,9 @@ class PacklistParsingThread(Thread):
 			self.waitOnPacklist()
 			self.parseFile()
 			printAndLogInfo("Finished checking " + self.bot + " for packs.")
-			time.sleep(self.sleepTime - (time.time() - startTime))
+			self.sleepTime -= time.time() - startTime
+			if self.sleepTime > 0:
+				time.sleep(self.sleepTime)
 	def waitOnPacklist(self):
 			self.ircCon.msg(self.bot, "XDCC SEND #1")
 			if self.bot not in self.ircCon.packlistConditions:
