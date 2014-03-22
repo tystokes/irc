@@ -28,24 +28,21 @@ def send(ircConnection, string):
 """ Acquires the print lock then both logs the info and prints it """
 def printAndLogInfo(string):
 	s = string.encode(encoding, "replace").decode(encoding, "replace")
-	printLock.acquire()
-	logging.info(s)
-	print(s)
-	printLock.release()
+	with printLock:
+		logging.info(s)
+		print(s)
 
 """ Acquires the print lock then prints the string """
 def lockPrint(string):
 	s = string.encode(encoding, "replace").decode(encoding, "replace")
-	printLock.acquire()
-	print(s)
-	printLock.release()
+	with printLock:
+		print(s)
 
 """ Acquires the print lock then logs the string """
 def logInfo(string):
 	s = string.encode(encoding, "replace").decode(encoding, "replace")
-	printLock.acquire()
-	logging.info(s)
-	printLock.release()
+	with printLock:
+		logging.info(s)
 
 """ Human readable filesize conversion """
 def convertSize(size):
@@ -165,16 +162,14 @@ class IRCParseThread(Thread):
 		tmp = re.search("Welcome to the[^:]+" + self.ircCon.nick , self.data)
 		if tmp:
 			if self.ircCon.connectedCondition != None:
-				self.ircCon.connectedCondition.acquire()
-				self.ircCon.connectedCondition.notify()
-				self.ircCon.connectedCondition.release()
+				with self.ircCon.connectedCondition:
+					self.ircCon.connectedCondition.notify()
 		tmp = re.search(":" + self.ircCon.nick + "![^:^!]+ JOIN :#([^\r^\n]+)\r\n", self.data)
 		if tmp:
 			chan = tmp.group(1).lower()
 			if chan in self.ircCon.joinConditions:
-				self.ircCon.joinConditions[chan].acquire()
-				self.ircCon.joinConditions[chan].notify()
-				self.ircCon.joinConditions[chan].release()
+				with self.ircCon.joinConditions[chan]:
+					self.ircCon.joinConditions[chan].notify()
 		# check for DCC VERSION request
 		tmp = re.search("[^\"]*PRIVMSG " + self.ircCon.nick + " :\x01VERSION\x01", self.data)
 		if tmp:
@@ -199,15 +194,13 @@ class IRCParseThread(Thread):
 		dcc.join() # wait for the thread to finish
 		# notify anyone waiting on the packlistCondition for this bot
 		if sender in self.ircCon.packlistConditions:
-			self.ircCon.packlistConditions[sender].acquire()
-			self.ircCon.packlists[sender] = filename
-			self.ircCon.packlistConditions[sender].notify_all()
-			self.ircCon.packlistConditions[sender].release()
+			with self.ircCon.packlistConditions[sender]:
+				self.ircCon.packlists[sender] = filename
+				self.ircCon.packlistConditions[sender].notify_all()
 		# notify anyone waiting on the responseCondition for this bot
 		if sender in self.ircCon.responseConditions:
-			self.ircCon.responseConditions[sender].acquire()
-			self.ircCon.responseConditions[sender].notify_all()
-			self.ircCon.responseConditions[sender].release()
+			with self.ircCon.responseConditions[sender]:
+				self.ircCon.responseConditions[sender].notify_all()
 
 """ A PacklistParsingThread searches an XDCC bot's packlist
 	for packs that match user-specified keywords. """
@@ -236,11 +229,10 @@ class PacklistParsingThread(Thread):
 			self.ircCon.msg(self.bot, "XDCC SEND #1")
 			if self.bot not in self.ircCon.packlistConditions:
 				self.ircCon.packlistConditions[self.bot] = threading.Condition(threading.Lock())
-			self.ircCon.packlistConditions[self.bot].acquire()
-			self.ircCon.packlistConditions[self.bot].wait()
-			self.filename = self.ircCon.packlists[self.bot]
+			with self.ircCon.packlistConditions[self.bot]:
+				self.ircCon.packlistConditions[self.bot].wait()
+				self.filename = self.ircCon.packlists[self.bot]
 			logInfo(self.filename + " received, Thread carrying on.")
-			self.ircCon.packlistConditions[self.bot].release()
 	def parseFile(self):
 		f = None
 		try :
@@ -269,11 +261,10 @@ class PacklistParsingThread(Thread):
 				if not os.path.isfile(name):
 					printAndLogInfo("Requesting pack " + pack + " " + name)
 					self.ircCon.responseConditions[self.bot] = threading.Condition(threading.Lock())
-					self.ircCon.responseConditions[self.bot].acquire()
-					self.ircCon.msg(self.bot, "XDCC SEND %s" % pack)
-					filesystemLock.release()
-					self.ircCon.responseConditions[self.bot].wait()
-					self.ircCon.responseConditions[self.bot].release()
+					with self.ircCon.responseConditions[self.bot]:
+						self.ircCon.msg(self.bot, "XDCC SEND %s" % pack)
+						filesystemLock.release()
+						self.ircCon.responseConditions[self.bot].wait()
 					del self.ircCon.responseConditions[self.bot]
 				else:
 					filesystemLock.release()
@@ -315,10 +306,9 @@ class IRCConnection:
 			send(self, "NICK %s\r\n" % self.nick)
 			send(self, "USER %s %s * :%s\r\n"
 				% (self.ident, self.host, self.realname))
-			self.connectedCondition.acquire()
-			self.listenerThread.start()
-			self.connectedCondition.wait()
-			self.connectedCondition.release()
+			with self.connectedCondition:
+				self.listenerThread.start()
+				self.connectedCondition.wait()
 			self.connectedCondition = None
 		except socket.error:
 			logger.warning("Connection failed.")
@@ -328,8 +318,7 @@ class IRCConnection:
 		chan = re.sub("[#]", "", chan)
 		chan = chan.lower()
 		self.joinConditions[chan] = threading.Condition(threading.Lock())
-		self.joinConditions[chan].acquire()
-		send(self, "JOIN #%s\r\n" % chan)
-		self.joinConditions[chan].wait()
-		self.joinConditions[chan].release()
+		with self.joinConditions[chan]:
+			send(self, "JOIN #%s\r\n" % chan)
+			self.joinConditions[chan].wait()
 		del self.joinConditions[chan]
