@@ -47,7 +47,9 @@ def logInfo(string):
 """ Human readable filesize conversion """
 def convertSize(size):
 	names = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"]
-	i = int(math.log(size, 1024) // 1)
+	i = int(0)
+	if size > 0:
+		i = int(math.log(size, 1024) // 1)
 	if i >= len(names):
 		i = int(len(names) - 1)
 	p = 1024 ** i
