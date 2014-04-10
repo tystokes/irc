@@ -105,7 +105,7 @@ class DCCThread(Thread):
 				try:
 					tmp = self.socket.recv(4096)
 				except socket.error as socketerror:
-					lockPrint("Error: " + socketerror)
+					lockPrint("Error: " + str(socketerror))
 					logging.warning("Exception occurred during DCC recv.")
 					self.socket.close()
 					return
@@ -141,7 +141,7 @@ class ListenerThread(Thread):
 			try:
 				data = str(self.ircCon.socket.recv(512), encoding = "UTF-8", errors = "ignore")
 			except socket.error as socketerror:
-				lockPrint("Error: " + socketerror)
+				lockPrint("Error: " + str(socketerror))
 			# recv returns 0 only when the connection is lost
 			if len(data) == 0:
 				lockPrint("Connection to server lost.")
