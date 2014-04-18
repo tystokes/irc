@@ -146,7 +146,9 @@ class ListenerThread(Thread):
 			if len(data) == 0:
 				lockPrint("Connection to server lost.")
 				break
-			IRCParseThread(self.ircCon, data).start()
+			lines = data.split("\r\n")
+			for l in lines:
+				IRCParseThread(self.ircCon, l + "\r\n").start()
 
 """	Handles parsing incoming data from the irc socket. """
 class IRCParseThread(Thread):
