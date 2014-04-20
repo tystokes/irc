@@ -1,6 +1,8 @@
 *.txt
 *.log
 *.mkv
+*.mp3
+*.mp4
 *.wav
 *.png
 *.jpg
