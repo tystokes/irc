@@ -1,7 +1,17 @@
 #!/usr/bin/python
 import irc
+from subprocess import call
 
 """ irc usage example """
+
+# git stuffs, uncomment for automatic updating
+# requires command line git to be installed
+# commits any changes made to the main and attempts to merge with master
+"""
+autoCommit = call("git commit -am \"Auto commit main\".", shell=True)
+git = call("git pull origin master", shell=True)
+checkoutOurMain = call("git checkout --ours main.py", shell=True)
+"""
 
 # IRCConnection(network, port, nick)
 con = irc.IRCConnection("irc.rizon.net", 6667, "roughneck")

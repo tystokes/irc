@@ -1,1 +1,3 @@
-Gin.txt
+*.txt
+*.log
+__pycache__/
