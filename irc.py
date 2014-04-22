@@ -142,6 +142,10 @@ class ListenerThread(Thread):
 				data = str(self.ircCon.socket.recv(512), encoding = "UTF-8", errors = "ignore")
 			except socket.error as socketerror:
 				lockPrint("Error: " + str(socketerror))
+			except socket.timoout:
+				lockPrint("Reconnecting: " + str(socketerror))
+				ircConnection.connect();
+				continue
 			# recv returns 0 only when the connection is lost
 			if len(data) == 0:
 				lockPrint("Connection to server lost.")
@@ -288,7 +292,7 @@ class IRCConnection:
 		self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.socket.settimeout(300)
 		# cv for notifying when you are connected
-		self.connectedCondition = threading.Condition(threading.Lock())
+		self.connectedCondition = None
 		# stores the filenames of the packlists for each bot
 		# assuming bot names are unique and, on an irc server, they are
 		self.packlists = dict()
@@ -305,6 +309,7 @@ class IRCConnection:
 		self.connect()
 	def connect(self):
 		try:
+			self.connectedCondition = threading.Condition(threading.Lock())
 			self.socket.connect((self.host, self.port))
 			# supply the standard nick and user info to the server
 			send(self, "NICK %s\r\n" % self.nick)
