@@ -20,14 +20,14 @@ print("autoCommit return code : " + str(autoCommit))
 try:
 	gitPull = check_output("git pull origin master", shell=True)
 	if not "Already up-to-date" in gitPull.decode('utf-8'):
-		Popen([str(sys.executable) + " " + filename])
+		Popen([sys.executable, filename])
 		sys.exit(0)
 except Exception as e:
 	checkoutTheirs = call("git checkout --theirs .*", shell=True)
 	print("checkoutTheirs return code : " + str(checkoutTheirs))
 	checkoutOurMain = call("git checkout --ours main.py", shell=True)
 	print("checkoutOurMain return code : " + str(checkoutOurMain))
-	Popen([str(sys.executable) + " " + filename])
+	Popen([sys.executable, filename])
 	sys.exit(0)
 """
 
