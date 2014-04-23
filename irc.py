@@ -135,24 +135,31 @@ class ListenerThread(Thread):
 		self.die = False
 	""" Main parse loop receives data and parses it for requests. """
 	def run(self):
-		lastPing = time.time()
+		started = time.time()
 		while not self.die:
 			data = str()
 			try:
 				data = str(self.ircCon.socket.recv(512), encoding = "UTF-8", errors = "ignore")
+			except socket.timeout as socketerror:
+				self.reconnect("Socket timout. Reconnecting.")
+				return
 			except socket.error as socketerror:
 				lockPrint("Error: " + str(socketerror))
-			except socket.timoout:
-				lockPrint("Reconnecting: " + str(socketerror))
-				ircConnection.connect();
-				continue
+				lockPrint("Quitting listener thread.")
+				return
 			# recv returns 0 only when the connection is lost
 			if len(data) == 0:
-				lockPrint("Connection to server lost.")
-				break
+				self.reconnect("Connection to server lost. Reconnecting")
+				return
+
 			lines = data.split("\r\n")
 			for l in lines:
 				IRCParseThread(self.ircCon, l + "\r\n").start()
+	def reconnect(self, msg):
+		lockPrint(msg)
+		self.ircCon.listenerThread = ListenerThread(self.ircCon)
+		self.ircCon.connect()
+		lockPrint("Connected.")
 
 """	Handles parsing incoming data from the irc socket. """
 class IRCParseThread(Thread):
@@ -166,7 +173,6 @@ class IRCParseThread(Thread):
 		tmp = re.search("PING (:[^\r^\n]+)\r\n", self.data)
 		if tmp:
 			send(self.ircCon, "PONG " + tmp.group(1) + "\r\n")
-			lastPing = time.time()
 		tmp = re.search("Welcome to the[^:]+" + self.ircCon.nick , self.data)
 		if tmp:
 			if self.ircCon.connectedCondition != None:
@@ -181,7 +187,7 @@ class IRCParseThread(Thread):
 		# check for DCC VERSION request
 		tmp = re.search("[^\"]*PRIVMSG " + self.ircCon.nick + " :\x01VERSION\x01", self.data)
 		if tmp:
-			send(self.ircCon, "VERSION irssi v0.8.12 \r\n")
+			self.ircCon.notice(self.ircCon, "VERSION irc.py")
 		# check for DCC SEND request
 		tmp = re.search("PRIVMSG " + self.ircCon.nick + " :\x01DCC SEND ", self.data)
 		if tmp:
@@ -289,8 +295,7 @@ class IRCConnection:
 		self.nick = nick
 		self.ident = nick
 		self.realname = nick
-		self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		self.socket.settimeout(300)
+		self.socket = None
 		# cv for notifying when you are connected
 		self.connectedCondition = None
 		# stores the filenames of the packlists for each bot
@@ -308,21 +313,28 @@ class IRCConnection:
 		self.listenerThread = ListenerThread(self)
 		self.connect()
 	def connect(self):
-		try:
-			self.connectedCondition = threading.Condition(threading.Lock())
-			self.socket.connect((self.host, self.port))
-			# supply the standard nick and user info to the server
-			send(self, "NICK %s\r\n" % self.nick)
-			send(self, "USER %s %s * :%s\r\n"
-				% (self.ident, self.host, self.realname))
-			with self.connectedCondition:
-				self.listenerThread.start()
-				self.connectedCondition.wait()
-			self.connectedCondition = None
-		except socket.error:
-			logger.warning("Connection failed.")
+		while True:
+			try:
+				self.connectedCondition = threading.Condition(threading.Lock())
+				self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+				self.socket.settimeout(300)
+				self.socket.connect((self.host, self.port))
+				# supply the standard nick and user info to the server
+				send(self, "NICK %s\r\n" % self.nick)
+				send(self, "USER %s %s * :%s\r\n"
+					% (self.ident, self.host, self.realname))
+				with self.connectedCondition:
+					self.listenerThread.start()
+					self.connectedCondition.wait()
+				self.connectedCondition = None
+				return
+			except socket.error:
+				printAndLogInfo("Connection failed.")
+			time.sleep(10)
 	def msg(self, who, what):
 		send(self, "PRIVMSG %s :%s\r\n" % (who, what))
+	def notice(self, who, what):
+		send(self, "NOTICE %s :\x01%s\x01\r\n" % (who, what))
 	def join(self, chan):
 		chan = re.sub("[#]", "", chan)
 		chan = chan.lower()
