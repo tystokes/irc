@@ -1,6 +1,5 @@
 #!/usr/bin/python
 import irc
-from subprocess import call
 
 """ irc usage example """
 
@@ -8,15 +7,26 @@ from subprocess import call
 # requires command line git to be installed
 # commits any changes made to the main and attempts to merge with master
 """
+import subprocess
+from subprocess import call
+from subprocess import check_output
+from subprocess import Popen
+import sys, os
+
 autoCommit = call("git commit -am \"Auto commit main\"", shell=True)
 print("autoCommit return code : " + str(autoCommit))
-gitPull = call("git pull origin master", shell=True)
-print("gitPull return code : " + str(gitPull))
-if gitPull != 0:
+try:
+	gitPull = check_output("git pull origin master", shell=True)
+	if not "Already up-to-date" in gitPull.decode('utf-8'):
+		Popen(["python " + str(os.path.abspath(__file__))])
+		sys.exit(0)
+except Exception as e:
 	checkoutTheirs = call("git checkout --theirs .*", shell=True)
 	print("checkoutTheirs return code : " + str(checkoutTheirs))
 	checkoutOurMain = call("git checkout --ours main.py", shell=True)
 	print("checkoutOurMain return code : " + str(checkoutOurMain))
+	Popen(["python " + str(os.path.abspath(__file__))])
+	sys.exit(0)
 """
 
 # IRCConnection(network, port, nick)
