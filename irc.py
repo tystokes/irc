@@ -120,7 +120,7 @@ class DCCThread(Thread):
 		except:
 			logging.warning("Exception occurred during file writing.")
 	def shouldOverwrite(self): # Perhaps take in user input?
-		if re.search('.txt\Z', self.filename):
+		if re.search(r".txt\Z", self.filename):
 			return True
 		return False
 	def shouldRename(self): # Perhaps take in user input?
@@ -170,26 +170,26 @@ class IRCParseThread(Thread):
 	def run(self):
 		logInfo("\"" + self.data + "\"")
 		# check for PING request
-		tmp = re.search("PING (:[^\r^\n]+)\r\n", self.data)
+		tmp = re.search(r"PING (:[^\r^\n]+)\r\n", self.data)
 		if tmp:
 			send(self.ircCon, "PONG " + tmp.group(1) + "\r\n")
-		tmp = re.search("Welcome to the[^:]+" + self.ircCon.nick , self.data)
+		tmp = re.search(r"Welcome to the[^:]+" + self.ircCon.nick , self.data)
 		if tmp:
 			if self.ircCon.connectedCondition != None:
 				with self.ircCon.connectedCondition:
 					self.ircCon.connectedCondition.notify()
-		tmp = re.search(":" + self.ircCon.nick + "![^:^!]+ JOIN :#([^\r^\n]+)\r\n", self.data)
+		tmp = re.search(r":" + self.ircCon.nick + r"![^:^!]+ JOIN :#([^\r^\n]+)\r\n", self.data)
 		if tmp:
 			chan = tmp.group(1).lower()
 			if chan in self.ircCon.joinConditions:
 				with self.ircCon.joinConditions[chan]:
 					self.ircCon.joinConditions[chan].notify()
 		# check for DCC VERSION request
-		tmp = re.search("[^\"]*PRIVMSG " + self.ircCon.nick + " :\x01VERSION\x01", self.data)
+		tmp = re.search(r"[^\"]*PRIVMSG " + self.ircCon.nick + r" :\x01VERSION\x01", self.data)
 		if tmp:
 			self.ircCon.notice(self.ircCon, "VERSION irc.py")
 		# check for DCC SEND request
-		tmp = re.search("PRIVMSG " + self.ircCon.nick + " :\x01DCC SEND ", self.data)
+		tmp = re.search(r"PRIVMSG " + self.ircCon.nick + r" :\x01DCC SEND ", self.data)
 		if tmp:
 			self.parseSend()
 	""" Parse self.data for a valid DCC SEND request. """
@@ -197,12 +197,12 @@ class IRCParseThread(Thread):
 		(sender, filename, ip, port, filesize) = (None, None, None, None, None)
 		try:
 			(sender, filename, ip, port, filesize) = [t(s) for t,s in zip((str,str,int,int,int),
-			re.search(':([^!^:]+)![^!]+DCC SEND \"*([^"]+)\"* (\d+) (\d+) (\d+)',self.data).groups())]
+			re.search(r":([^!^:]+)![^!]+DCC SEND \"*([^\"]+)\"* (\d+) (\d+) (\d+)",self.data).groups())]
 		except:
 			logging.warning("Malformed DCC SEND request, ignoring...")
 			return
 		# unpack the ip to get a proper hostname
-		host = socket.inet_ntoa(struct.pack('!I', ip))
+		host = socket.inet_ntoa(struct.pack("!I", ip))
 		dcc = DCCThread(filename, host, port, filesize)
 		dcc.start() # start the thread
 		dcc.join() # wait for the thread to finish
@@ -259,7 +259,7 @@ class PacklistParsingThread(Thread):
 			(pack, dls, size, name) = (None, None, None, None)
 			try:
 				(pack, dls, size, name) = [t(s) for t,s in zip((str,int,str,str),
-				re.search('(\S+)[ ]+(\d+)x \[([^\[^\]]+)\] ([^"^\n]+)', line).groups())]
+				re.search(r"(\S+)[ ]+(\d+)x \[([^\[^\]]+)\] ([^\"^\n]+)", line).groups())]
 			except:
 				continue
 			for s in self.series:
@@ -336,7 +336,7 @@ class IRCConnection:
 	def notice(self, who, what):
 		send(self, "NOTICE %s :\x01%s\x01\r\n" % (who, what))
 	def join(self, chan):
-		chan = re.sub("[#]", "", chan)
+		chan = re.sub(r"[#]", "", chan)
 		chan = chan.lower()
 		self.joinConditions[chan] = threading.Condition(threading.Lock())
 		with self.joinConditions[chan]:
