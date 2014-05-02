@@ -5,7 +5,7 @@
 	Written for python 3.
 """
 import math, sys, socket, string, os, platform, time, threading, struct
-import re, io, logging
+import re, io, logging, gui
 from threading import Thread
 
 encoding = sys.getfilesystemencoding()
@@ -24,25 +24,6 @@ printLock = threading.Lock()
 	the bytes are then sent over the socket. """
 def send(ircConnection, string):
 	ircConnection.socket.send(bytes(string, "UTF-8"))
-
-""" Acquires the print lock then both logs the info and prints it """
-def printAndLogInfo(string):
-	s = string.encode(encoding, "replace").decode(encoding, "replace")
-	with printLock:
-		logging.info(s)
-		print(s)
-
-""" Acquires the print lock then prints the string """
-def lockPrint(string):
-	s = string.encode(encoding, "replace").decode(encoding, "replace")
-	with printLock:
-		print(s)
-
-""" Acquires the print lock then logs the string """
-def logInfo(string):
-	s = string.encode(encoding, "replace").decode(encoding, "replace")
-	with printLock:
-		logging.info(s)
 
 """ Human readable filesize conversion """
 def convertSize(size):
@@ -66,8 +47,9 @@ def convertSize(size):
 """	A DCCThread handles a DCC SEND request by
 	opening up the specified port and receiving the file. """
 class DCCThread(Thread):
-	def __init__(self, filename, host, port, filesize):
+	def __init__(self, filename, host, port, filesize, ircConnection):
 		Thread.__init__(self)
+		self.ircCon = ircConnection
 		self.filename = filename
 		self.host = host
 		self.port = port
@@ -84,11 +66,17 @@ class DCCThread(Thread):
 				break
 			if self.shouldRename():
 				continue
-			lockPrint(self.filename + " already exists, closing socket.")
+			self.ircCon.lockPrint(self.filename + " already exists, closing socket.")
 			self.socket.close()
 			filesystemLock.release()
 			return
-		lockPrint("Downloading " + self.filename + " [" + convertSize(self.filesize) + "]")
+		if (self.ircCon.gui == None):
+			self.ircCon.lockPrint("Downloading " + self.filename + " [" + convertSize(self.filesize) + "]")
+		else:
+			self.ircCon.gui.addLine("Downloading", self.ircCon.gui.cyanText)
+			self.ircCon.gui.addLine(" " + self.filename + " ")
+			self.ircCon.gui.addLine("[" + convertSize(self.filesize) + "]", self.ircCon.gui.greenText)
+			self.ircCon.gui.addLine("\n")
 		f = None
 		try:
 			f = open(self.filename, "wb")
@@ -105,18 +93,18 @@ class DCCThread(Thread):
 				try:
 					tmp = self.socket.recv(4096)
 				except socket.error as socketerror:
-					lockPrint("Error: " + str(socketerror))
+					self.ircCon.lockPrint("Error: " + str(socketerror))
 					logging.warning("Exception occurred during DCC recv.")
 					self.socket.close()
 					return
 				bytesReceived += len(tmp)
 				if len(tmp) <= 0:
-					lockPrint("DCC error: Socked closed.")
+					self.ircCon.lockPrint("DCC error: Socked closed.")
 					logging.warning("DCC error: Socked closed.")
 					break
 				f.write(tmp)
 			f.close()
-			lockPrint("Transfer of " + self.filename + " complete.")
+			self.ircCon.lockPrint("Transfer of " + self.filename + " complete.")
 		except:
 			logging.warning("Exception occurred during file writing.")
 	def shouldOverwrite(self): # Perhaps take in user input?
@@ -144,8 +132,8 @@ class ListenerThread(Thread):
 				self.reconnect("Socket timout. Reconnecting.")
 				return
 			except socket.error as socketerror:
-				lockPrint("Error: " + str(socketerror))
-				lockPrint("Quitting listener thread.")
+				self.ircCon.lockPrint("Error: " + str(socketerror))
+				self.ircCon.lockPrint("Quitting listener thread.")
 				return
 			# recv returns 0 only when the connection is lost
 			if len(data) == 0:
@@ -154,12 +142,14 @@ class ListenerThread(Thread):
 
 			lines = data.split("\r\n")
 			for l in lines:
-				IRCParseThread(self.ircCon, l + "\r\n").start()
+				pt = IRCParseThread(self.ircCon, l + "\r\n")
+				pt.daemon = True
+				pt.start()
 	def reconnect(self, msg):
-		lockPrint(msg)
+		self.ircCon.lockPrint(msg)
 		self.ircCon.listenerThread = ListenerThread(self.ircCon)
 		self.ircCon.connect()
-		lockPrint("Connected.")
+		self.ircCon.lockPrint("Connected.")
 
 """	Handles parsing incoming data from the irc socket. """
 class IRCParseThread(Thread):
@@ -168,7 +158,7 @@ class IRCParseThread(Thread):
 		self.ircCon = ircConnection
 		self.data = data
 	def run(self):
-		logInfo("\"" + self.data + "\"")
+		self.ircCon.logInfo("\"" + self.data + "\"")
 		# check for PING request
 		tmp = re.search(r"PING (:[^\r^\n]+)\r\n", self.data)
 		if tmp:
@@ -203,7 +193,8 @@ class IRCParseThread(Thread):
 			return
 		# unpack the ip to get a proper hostname
 		host = socket.inet_ntoa(struct.pack("!I", ip))
-		dcc = DCCThread(filename, host, port, filesize)
+		dcc = DCCThread(filename, host, port, filesize, self.ircCon)
+		dcc.daemon = True
 		dcc.start() # start the thread
 		dcc.join() # wait for the thread to finish
 		# notify anyone waiting on the packlistCondition for this bot
@@ -232,10 +223,10 @@ class PacklistParsingThread(Thread):
 		while not self.die:
 			self.sleepTime = 60*60*3 # 3 hours
 			startTime = time.time()
-			printAndLogInfo(time.asctime(time.localtime()) + " - Checking " + self.bot +" for packs.")
+			self.ircCon.printAndLogInfo(time.asctime(time.localtime()) + " - Checking " + self.bot +" for packs.")
 			self.waitOnPacklist()
 			self.parseFile()
-			printAndLogInfo("Finished checking " + self.bot + " for packs.")
+			self.ircCon.printAndLogInfo("Finished checking " + self.bot + " for packs.")
 			self.sleepTime -= time.time() - startTime
 			if self.sleepTime > 0:
 				time.sleep(self.sleepTime)
@@ -246,14 +237,14 @@ class PacklistParsingThread(Thread):
 			with self.ircCon.packlistConditions[self.bot]:
 				self.ircCon.packlistConditions[self.bot].wait()
 				self.filename = self.ircCon.packlists[self.bot]
-			logInfo(self.filename + " received, Thread carrying on.")
+			self.ircCon.logInfo(self.filename + " received, Thread carrying on.")
 	def parseFile(self):
 		f = None
 		try :
 			f = open(self.filename, mode = "r", encoding = encoding, errors = "ignore")
 		except OSError:
 			f.close()
-			printAndLogInfo("Unable to open file during parseFile().")
+			self.ircCon.printAndLogInfo("Unable to open file during parseFile().")
 			return
 		for line in f:
 			(pack, dls, size, name) = (None, None, None, None)
@@ -273,7 +264,7 @@ class PacklistParsingThread(Thread):
 				logging.debug("candidate: " + name)
 				filesystemLock.acquire()
 				if not os.path.isfile(name):
-					printAndLogInfo("Requesting pack " + pack + " " + name)
+					self.ircCon.printAndLogInfo("Requesting pack " + pack + " " + name)
 					self.ircCon.responseConditions[self.bot] = threading.Condition(threading.Lock())
 					with self.ircCon.responseConditions[self.bot]:
 						self.ircCon.msg(self.bot, "XDCC SEND %s" % pack)
@@ -289,12 +280,13 @@ class PacklistParsingThread(Thread):
 	It starts a ListenerThread so it doesn't have
 	to worry about 'blocking' recv calls. """
 class IRCConnection:
-	def __init__(self, network, port, nick):
+	def __init__(self, network, port, nick, window = None):
 		self.host = network
 		self.port = port
 		self.nick = nick
 		self.ident = nick
 		self.realname = nick
+		self.gui = window
 		self.socket = None
 		# cv for notifying when you are connected
 		self.connectedCondition = None
@@ -324,12 +316,13 @@ class IRCConnection:
 				send(self, "USER %s %s * :%s\r\n"
 					% (self.ident, self.host, self.realname))
 				with self.connectedCondition:
+					self.listenerThread.daemon = True
 					self.listenerThread.start()
 					self.connectedCondition.wait()
 				self.connectedCondition = None
 				return
 			except socket.error:
-				printAndLogInfo("Connection failed.")
+				self.printAndLogInfo("Connection failed.")
 			time.sleep(10)
 	def msg(self, who, what):
 		send(self, "PRIVMSG %s :%s\r\n" % (who, what))
@@ -343,3 +336,29 @@ class IRCConnection:
 			send(self, "JOIN #%s\r\n" % chan)
 			self.joinConditions[chan].wait()
 		del self.joinConditions[chan]
+
+	""" Acquires the print lock then both logs the info and prints it """
+	def printAndLogInfo(self, string):
+		s = string.encode(encoding, "replace").decode(encoding, "replace")
+		with printLock:
+			logging.info(s)
+			if self.gui == None:
+				print(s)
+			else:
+				self.gui.addLine(s + "\n")
+
+
+	""" Acquires the print lock then prints the string """
+	def lockPrint(self, string):
+		s = string.encode(encoding, "replace").decode(encoding, "replace")
+		with printLock:
+			if self.gui == None:
+				print(s)
+			else:
+				self.gui.addLine(s + "\n")
+
+	""" Acquires the print lock then logs the string """
+	def logInfo(self, string):
+		s = string.encode(encoding, "replace").decode(encoding, "replace")
+		with printLock:
+			logging.info(s)

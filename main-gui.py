@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import irc
+import irc, gui, sys
 
 """ irc usage example """
 
@@ -35,10 +35,17 @@ except Exception as e:
 	sys.exit(0)
 """
 
-# IRCConnection(network, port, nick)
-con = irc.IRCConnection("irc.rizon.net", 6667, "roughneck")
+# GUI stuff
+# All threads must be daemons so they exit if the main exits
+window = gui.IRCWindow()
+window.daemon = True
+window.start()
 
-# Add bots that offer packlists here:
+# The window parameter is an optional IRCWindow object to attach to
+# otherwise runs headless
+con = irc.IRCConnection("irc.rizon.net", 6667, "roughneck", window)
+
+# Bots I use often on the rizon network
 bots = ["Ginpachi-Sensei"]
 
 # Fill in keywords to search for regarding each series
@@ -47,17 +54,12 @@ bots = ["Ginpachi-Sensei"]
 series = [
 	[r"\[Doki\] Anime A.*\[720p\]"]] # All episodes of Anime A by Doki in 720p
 
-# list of all parsing threads
-threads = []
-
 # ParseThread will parse the bot's packlist every 3 hours looking for packs that fit the keyword set
 # you may parse multiple bots at once searching for the same or different files
 for bot in bots:
 	ppt = irc.PacklistParsingThread(con, bot, series)
-	threads.append(ppt)
 	ppt.daemon = True
 	ppt.start()
 
-# Program exits if all parsing threads return
-for t in threads:
-	t.join()
+# Program exits if IRCWindow thread returns
+window.join()
