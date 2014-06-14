@@ -291,8 +291,8 @@ class PacklistParsingThread(Thread):
         while not self.die:
             startTime = time()
             self.ircCon.packlistStartTime[self.bot] = startTime
-            if self.ircCon.gui == None:
-                self.ircCon.printAndLogInfo(asctime(localtime()) + " - Checking " + self.bot +" for packs.")
+            if not self.ircCon.gui:
+                self.ircCon.printAndLogInfo(asctime(localtime()) + " - Checking " + self.bot + " for packs.")
             else:
                 with printLock:
                     self.ircCon.gui.addLine(asctime(localtime()), self.ircCon.gui.yellowText)
@@ -301,7 +301,7 @@ class PacklistParsingThread(Thread):
                     self.ircCon.gui.addLine(" for packs.\n")
             packlistArrived = self.waitOnPacklist()
             self.parseFile()
-            if self.ircCon.gui == None:
+            if not self.ircCon.gui:
                 self.ircCon.printAndLogInfo("Finished checking " + self.bot + " for packs.")
             else:
                 with printLock:
@@ -328,48 +328,40 @@ class PacklistParsingThread(Thread):
                     self.ircCon.logInfo(self.filename + " received.")
                     return True
     def parseFile(self):
-        f = None
-        try :
-            f = open(self.filename, mode = "r", encoding = encoding, errors = "ignore")
-        except OSError:
-            f.close()
-            self.ircCon.printAndLogInfo("Error: Unable to open file during parseFile().")
-            return
-        for line in f:
-            (pack, dls, size, name) = (None, None, None, None)
-            try:
-                (pack, dls, size, name) = [t(s) for t,s in zip((str,int,str,str),
-                search(r"(\S+)[ ]+(\d+)x \[([^\[^\]]+)\] ([^\"^\n]+)", line).groups())]
-            except:
-                continue
-            for s in self.series:
-                goodCandidate = True
-                for kw in s:
-                    if not search(kw, name):
-                        goodCandidate = False
-                        break
-                if not goodCandidate:
+        with open(self.filename, mode = "r", encoding = encoding, errors = "ignore") as f:
+            lines = f.read().splitlines()
+        for series in self.series:
+            for line in lines:
+                try:
+                    (self.pack, self.dls, self.size, self.name) = [t(s) for t,s in zip((str,int,str,str),
+                    search(r"(\S+)[ ]+(\d+)x \[([^\[^\]]+)\] ([^\"^\n]+)", line).groups())]
+                    for kw in series:
+                        if not search(kw, self.name):
+                            raise Exception("regex failure")
+                    self.checkCandidate()
+                except:
                     continue
-                logging.debug("candidate: " + name)
-                filesystemLock.acquire()
-                if not isfile(name):
-                    if self.ircCon.gui == None:
-                        self.ircCon.printAndLogInfo("Requesting pack " + pack + " " + name)
-                    else:
-                        with printLock:
-                            self.ircCon.gui.addLine("Requesting pack ", self.ircCon.gui.cyanText)
-                            self.ircCon.gui.addLine(pack, self.ircCon.gui.yellowText)
-                            self.ircCon.gui.addLine(" " + name + "\n")
-                    self.ircCon.responseConditions[self.bot] = Condition(Lock())
-                    with self.ircCon.responseConditions[self.bot]:
-                        self.ircCon.msg(self.bot, "XDCC SEND %s" % pack)
-                        filesystemLock.release()
-                        self.ircCon.responseConditions[self.bot].wait()
-                    del self.ircCon.responseConditions[self.bot]
-                else:
-                    filesystemLock.release()
-                    logging.debug("File already exists.")
-        f.close()
+    def checkCandidate(self):
+        logging.debug("candidate: " + self.name)
+        filesystemLock.acquire()
+        if not isfile(self.name):
+            if not self.ircCon.gui:
+                self.ircCon.printAndLogInfo("Requesting pack " + self.pack + " " + self.name)
+            else:
+                with printLock:
+                    self.ircCon.gui.addLine("Requesting pack ", self.ircCon.gui.cyanText)
+                    self.ircCon.gui.addLine(self.pack, self.ircCon.gui.yellowText)
+                    self.ircCon.gui.addLine(" " + self.name + "\n")
+            self.ircCon.responseConditions[self.bot] = Condition(Lock())
+            with self.ircCon.responseConditions[self.bot]:
+                self.ircCon.msg(self.bot, "XDCC SEND %s" % self.pack)
+                filesystemLock.release()
+                self.ircCon.responseConditions[self.bot].wait()
+            del self.ircCon.responseConditions[self.bot]
+        else:
+            filesystemLock.release()
+            logging.debug("File already exists.")    
+
 
 """ 
     An IRCConnection acts as the 'command thread'.
@@ -413,7 +405,7 @@ class IRCConnection:
                     self.listenerThread.start()
                     self.connectedCondition.wait()
                 self.connectedCondition = None
-                if self.gui == None:
+                if not self.gui:
                     self.lockPrint("Connected to " + self.host + " as " + self.nick + ".")
                 else:
                     self.gui.addLine("Connected to ", self.gui.cyanText)
@@ -447,7 +439,7 @@ class IRCConnection:
             self.catchSend("JOIN #%s\r\n" % chan)
             self.joinConditions[chan].wait()
         del self.joinConditions[chan]
-        if self.gui == None:
+        if not self.gui:
             self.lockPrint("Joined channel #" + chan + ".")
         else:
             self.gui.addLine("Joined channel ", self.gui.cyanText)
@@ -474,7 +466,7 @@ class IRCConnection:
             logging.info(s)
 
     def printInfo(self, string):
-        if self.gui == None:
+        if not self.gui:
             print(string)
         else:
             color = 0
