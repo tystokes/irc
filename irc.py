@@ -36,6 +36,10 @@ def send(ircConnection, string):
 
 """ Human readable filesize conversion. """
 def convertSize(size):
+    if size < 0:
+        raise ValueError("Negative size.")
+    elif size == 0:
+        return "0 B"
     names = ("B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB")
     i = int(0)
     if size > 0:
@@ -48,10 +52,7 @@ def convertSize(size):
         tmp = round(s)
     else:
         tmp = round(s, 1)
-    if s > 0:
-        return "%s %s" % (tmp, names[i])
-    else:
-        return "0 B"
+    return "%s %s" % (tmp, names[i])
 
 """
     A DCCThread handles a DCC SEND request by
@@ -79,7 +80,7 @@ class DCCThread(Thread):
                 break
             if self.shouldRename():
                 continue
-            if self.ircCon.gui == None:
+            if not self.ircCon.gui:
                 self.ircCon.lockPrint(self.filename + " already exists, closing socket.")
             else:
                 with printLock:
@@ -88,7 +89,7 @@ class DCCThread(Thread):
             self.socket.close()
             filesystemLock.release()
             return False
-        if self.ircCon.gui == None:
+        if not self.ircCon.gui:
             self.ircCon.lockPrint("Downloading " + self.filename + " [" + convertSize(self.filesize) + "]")
         else:
             with printLock:
@@ -122,7 +123,7 @@ class DCCThread(Thread):
                     break
                 f.write(tmp)
             f.close()
-            if self.ircCon.gui == None:
+            if not self.ircCon.gui:
                 self.ircCon.lockPrint("Transfer of " + self.filename + " complete.")
             else:
                 with printLock:
@@ -321,7 +322,7 @@ class PacklistParsingThread(Thread):
                 if not self.ircCon.packlistConditions[self.bot]:
                     self.ircCon.logInfo(self.filename + " not received. Request timed out.")
                     return False
-                elif self.ircCon.packlists[self.bot] == None:
+                elif not self.ircCon.packlists[self.bot]:
                     return False
                 else:
                     self.filename = self.ircCon.packlists[self.bot]
