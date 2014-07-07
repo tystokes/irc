@@ -106,6 +106,8 @@ class DCCThread(Thread):
             # we should be good to let other threads look at the filesystem
             filesystemLock.release()
         try:
+            lastTime = time()
+            lastTotal = 0
             bytesReceived = 0
             while bytesReceived != self.filesize:
                 tmp = None
@@ -122,6 +124,16 @@ class DCCThread(Thread):
                     logging.warning("DCC Error: Socked closed.")
                     break
                 f.write(tmp)
+                now = time()
+                if now - lastTime > 0.5:
+                    rate = int((bytesReceived - lastTotal)/(now - lastTime))
+                    lastTime = now
+                    lastTotal = bytesReceived
+                    if not self.ircCon.gui:
+                        self.ircCon.lockPrint(convertSize(rate) + "/s ")
+                    else:
+                        with printLock:
+                            self.ircCon.gui.addInput(convertSize(rate) + "/s")
             f.close()
             if not self.ircCon.gui:
                 self.ircCon.lockPrint("Transfer of " + self.filename + " complete.")
@@ -130,6 +142,7 @@ class DCCThread(Thread):
                     self.ircCon.gui.addLine("Transfer of ", self.ircCon.gui.cyanText)
                     self.ircCon.gui.addLine(self.filename)
                     self.ircCon.gui.addLine(" complete.\n", self.ircCon.gui.cyanText)
+                    self.ircCon.gui.addInput("")
         except:
             logging.warning("Exception occurred during file writing.")
         return True
