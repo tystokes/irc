@@ -21,6 +21,10 @@ class IRCWindow(Thread):
         self.scrollPos = self.scrollPosMax
         self.refresh()
 
+    def addInput(self, string, style = 0):
+        self.inputLine.addstr(0, 0, self.pad(string), style)
+        self.refresh()
+
     def main(self, stdscr):
         self.stdscr = stdscr; self.scrollPosMax = int(-1)
         self.scrollPos = int(0); self.maxScroll = 100

@@ -106,6 +106,8 @@ class DCCThread(Thread):
             # we should be good to let other threads look at the filesystem
             filesystemLock.release()
         try:
+            lastTime = time()
+            lastTotal = 0
             bytesReceived = 0
             while bytesReceived != self.filesize:
                 tmp = None
@@ -122,6 +124,16 @@ class DCCThread(Thread):
                     logging.warning("DCC Error: Socked closed.")
                     break
                 f.write(tmp)
+                now = time()
+                if now - lastTime > 0.5:
+                    rate = int((bytesReceived - lastTotal)/(now - lastTime))
+                    lastTime = now
+                    lastTotal = bytesReceived
+                    if not self.ircCon.gui:
+                        self.ircCon.lockPrint(convertSize(rate) + "/s ")
+                    else:
+                        with printLock:
+                            self.ircCon.gui.addInput(convertSize(rate) + "/s")
             f.close()
             if not self.ircCon.gui:
                 self.ircCon.lockPrint("Transfer of " + self.filename + " complete.")
@@ -130,6 +142,7 @@ class DCCThread(Thread):
                     self.ircCon.gui.addLine("Transfer of ", self.ircCon.gui.cyanText)
                     self.ircCon.gui.addLine(self.filename)
                     self.ircCon.gui.addLine(" complete.\n", self.ircCon.gui.cyanText)
+                    self.ircCon.gui.addInput("")
         except:
             logging.warning("Exception occurred during file writing.")
         return True
@@ -191,25 +204,36 @@ class ListenerThread(Thread):
 
             lines = data.split("\r\n")
             for l in lines:
-                pt = IRCParseThread(self.ircCon, l + "\r\n")
+                pt = IRCParseThread(self.ircCon, l + "\r\n", self)
                 pt.daemon = True
                 pt.start()
     def reconnect(self, msg):
-        self.ircCon.lockPrint(msg)
+        self.ircCon.printAndLogInfo(msg)
         self.ircCon.listenerThread = ListenerThread(self.ircCon)
-        self.ircCon.connect()
+        self.ircCon.connect(5)
 
 """ Handles parsing incoming data from the irc socket. """
 class IRCParseThread(Thread):
-    def __init__(self, ircConnection, data):
+    def __init__(self, ircConnection, data, listenerThread):
         Thread.__init__(self)
         self.ircCon = ircConnection
         self.data = data
+        self.listenerThread = listenerThread
     def run(self):
         self.ircCon.logInfo("\"" + self.data + "\"")
+        # check for link close
+        tmp = search(r"^ERROR :Closing Link:", self.data)
+        if tmp:
+            if self.ircCon.connectedCondition != None:
+                with self.ircCon.connectedCondition:
+                    self.ircCon.unableToConnect = True
+                    self.ircCon.connectedCondition.notify()
         # check for PING request
         tmp = search(r"PING (:[^\r^\n]+)\r\n", self.data)
         if tmp:
+            if self.ircCon.connectedCondition != None:
+                with self.ircCon.connectedCondition:
+                    self.ircCon.connectedCondition.notify()
             send(self.ircCon, "PONG " + tmp.group(1) + "\r\n")
         # check for welcome message
         tmp = search(r"Welcome to the[^:]+" + self.ircCon.nick , self.data)
@@ -279,7 +303,7 @@ class IRCParseThread(Thread):
 """
 class PacklistParsingThread(Thread):
     # default sleepTime is 3 hours
-    def __init__(self, ircConnection, bot, series, sleepTime = 3600 * 3):
+    def __init__(self, ircConnection, bot, series, sleepTime = 3600 * 3, finishFunction = None):
         Thread.__init__(self)
         self.filename = None
         self.bot = bot
@@ -288,6 +312,9 @@ class PacklistParsingThread(Thread):
         self.series = series
         self.f = None
         self.sleepTime = sleepTime
+        self.finishFunction = finishFunction
+    def kill(self):
+        self.die = True
     def run(self):
         while not self.die:
             startTime = time()
@@ -311,8 +338,11 @@ class PacklistParsingThread(Thread):
                     self.ircCon.gui.addLine(" for packs.\n")
             timeShouldSleep = self.sleepTime - (time() - startTime)
             del self.ircCon.packlistStartTime[self.bot]
-            if packlistArrived and timeShouldSleep > 0:
+            if self.finishFunction:
+                self.finishFunction()
+            elif packlistArrived and timeShouldSleep > 0:
                 sleep(timeShouldSleep)
+        return
     def waitOnPacklist(self):
             self.ircCon.msg(self.bot, "XDCC SEND #1")
             if self.bot not in self.ircCon.packlistConditions:
@@ -322,7 +352,7 @@ class PacklistParsingThread(Thread):
                 if not self.ircCon.packlistConditions[self.bot]:
                     self.ircCon.logInfo(self.filename + " not received. Request timed out.")
                     return False
-                elif not self.ircCon.packlists[self.bot]:
+                elif not self.bot in self.ircCon.packlists or not self.ircCon.packlists[self.bot]:
                     return False
                 else:
                     self.filename = self.ircCon.packlists[self.bot]
@@ -387,12 +417,14 @@ class IRCConnection:
         self.responseConditions = dict()
         # stores join cv's for each channel
         self.joinConditions = dict()
-        self.listenerThread = ListenerThread(self)
         self.connect()
 
-    def connect(self):
+    def connect(self, timeout = 0):
         while True:
             try:
+                self.printAndLogInfo("Attempting to connect.")
+                if timeout > 0:
+                    sleep(timeout)
                 self.connectedCondition = Condition(Lock())
                 self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.socket.settimeout(300)
@@ -401,11 +433,15 @@ class IRCConnection:
                 send(self, "NICK %s\r\n" % self.nick)
                 send(self, "USER %s %s * :%s\r\n"
                     % (self.ident, self.host, self.realname))
+                self.unableToConnect = False
                 with self.connectedCondition:
+                    self.listenerThread = ListenerThread(self)
                     self.listenerThread.daemon = True
                     self.listenerThread.start()
                     self.connectedCondition.wait()
                 self.connectedCondition = None
+                if self.unableToConnect:
+                    raise Exception("Unable to connect.")
                 if not self.gui:
                     self.lockPrint("Connected to " + self.host + " as " + self.nick + ".")
                 else:
@@ -417,13 +453,16 @@ class IRCConnection:
                 return
             except socket.error:
                 self.printAndLogInfo("Error: Connection failed.")
-            sleep(10)
+            except Exception as err:
+                self.printAndLogInfo("error: {0}".format(err))
+            self.printAndLogInfo("Sleeping for 15")
+            sleep(15)
 
     def catchSend(self, string):
         try:
             send(self, string)
         except Exception as e:
-            self.lockPrint("catchSend() error: {0}".format(e))
+            self.printAndLogInfo("catchSend() error: {0}".format(e))
             self.connect()
 
     def msg(self, who, what):
