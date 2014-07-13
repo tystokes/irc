@@ -326,6 +326,8 @@ class PacklistParsingThread(Thread):
     def run(self):
         while not self.die:
             startTime = time()
+            self.ircCon.msg(self.bot, "XDCC CANCEL")
+            sleep(2)
             self.ircCon.packlistStartTime[self.bot] = startTime
             if not self.ircCon.gui:
                 self.ircCon.printAndLogInfo(asctime(localtime()) + " - Checking " + self.bot + " for packs.")
