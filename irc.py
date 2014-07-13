@@ -275,11 +275,6 @@ class IRCParseThread(Thread):
                 with self.ircCon.md5Conditions[bot]:
                     self.ircCon.md5Data[bot] = md5sum
                     self.ircCon.md5Conditions[bot].notify_all()
-        for b, t in self.ircCon.packlistStartTime.items():
-            if time() - t > 30:
-                with self.ircCon.packlistConditions[b]:
-                    self.ircCon.packlistStartTime[b] = False
-                    self.ircCon.packlistConditions[b].notify()
     """ Parse self.data for a valid DCC SEND request. """
     def parseSend(self):
         (sender, filename, ip, port, filesize) = (None, None, None, None, None)
@@ -328,7 +323,6 @@ class PacklistParsingThread(Thread):
             startTime = time()
             self.ircCon.msg(self.bot, "XDCC CANCEL")
             sleep(2)
-            self.ircCon.packlistStartTime[self.bot] = startTime
             if not self.ircCon.gui:
                 self.ircCon.printAndLogInfo(asctime(localtime()) + " - Checking " + self.bot + " for packs.")
             else:
@@ -347,7 +341,6 @@ class PacklistParsingThread(Thread):
                     self.ircCon.gui.addLine(self.bot, self.ircCon.gui.magentaText)
                     self.ircCon.gui.addLine(" for packs.\n")
             timeShouldSleep = self.sleepTime - (time() - startTime)
-            del self.ircCon.packlistStartTime[self.bot]
             if self.finishFunction:
                 self.finishFunction()
             elif packlistArrived and timeShouldSleep > 0:
@@ -366,10 +359,7 @@ class PacklistParsingThread(Thread):
                     if self.ircCon.lastRequestedPack[self.bot] == None:
                         self.ircCon.logInfo("waitOnPacklist continuing")
                         continue
-                    if not self.ircCon.packlistConditions[self.bot]:
-                        self.ircCon.logInfo(self.filename + " not received. Request timed out.")
-                        return False
-                    elif not self.bot in self.ircCon.packlists or not self.ircCon.packlists[self.bot]:
+                    if not self.bot in self.ircCon.packlists or not self.ircCon.packlists[self.bot]:
                         return False
                     else:
                         self.filename = self.ircCon.packlists[self.bot]
@@ -429,7 +419,6 @@ class IRCConnection:
         self.packlists = dict()
         # stores packlist cv's for each bot
         self.packlistConditions = dict()
-        self.packlistStartTime = dict()
         # listens for md5 info
         self.md5Conditions = dict()
         self.md5Data = dict()

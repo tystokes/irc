@@ -3,8 +3,9 @@ from curses import wrapper
 from threading import Thread
 
 class IRCWindow(Thread):
-    def __init__(self):
+    def __init__(self, event):
         Thread.__init__(self)
+        self.event = event
 
     def run(self):
         wrapper(self.main)
@@ -59,6 +60,7 @@ class IRCWindow(Thread):
         self.topLine = stdscr.subwin(1, self.width, 0, 0)
         self.infoLine = stdscr.subwin(1, self.width, self.height - 2, 0)
         self.inputLine = stdscr.subwin(1, self.width, self.height - 1, 0)
+        self.event.set()
         self.getInput()
 
     def getInput(self):

@@ -1,6 +1,6 @@
 #!/usr/bin/python
 import irc, gui
-
+from threading import Event
 """ irc usage example """
 
 # git stuffs, uncomment for automatic updating
@@ -34,12 +34,14 @@ except Exception as e:
 
 # GUI stuff
 # All threads must be daemons so they exit if the main exits
-window = gui.IRCWindow()
+window_ready = Event()
+window = gui.IRCWindow(window_ready)
 window.daemon = True
 window.start()
 
 # The window parameter is an optional IRCWindow object to attach to
 # otherwise runs headless
+window_ready.wait() # wait for window to be initialized
 con = irc.IRCConnection("irc.rizon.net", 6667, "roughneck", window)
 
 # Bots I use often on the rizon network
