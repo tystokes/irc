@@ -70,8 +70,16 @@ class DCCThread(Thread):
         self.md5check = md5check
     def run(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.settimeout(200)
-        self.socket.connect((self.host, self.port))
+        self.socket.settimeout(300)
+        try:
+            self.socket.connect((self.host, self.port))
+        except Exception as e:
+            self.ircCon.logInfo("error: {0}".format(e))
+            self.ircCon.printAndLogInfo("Socket error, trying again.")
+            self.ircCon.msg(self.bot, "XDCC CANCEL")
+            self.ircCon.lastRequestedPack[self.bot] = None
+            sleep(3)
+            return
         # make sure we are the only thread looking at the filesystem
         filesystemLock.acquire()
         # File conflict resolution
@@ -344,20 +352,27 @@ class PacklistParsingThread(Thread):
                 sleep(timeShouldSleep)
         return
     def waitOnPacklist(self):
-            self.ircCon.msg(self.bot, "XDCC SEND #1")
-            if self.bot not in self.ircCon.packlistConditions:
-                self.ircCon.packlistConditions[self.bot] = Condition(Lock())
-            with self.ircCon.packlistConditions[self.bot]:
-                self.ircCon.packlistConditions[self.bot].wait()
-                if not self.ircCon.packlistConditions[self.bot]:
-                    self.ircCon.logInfo(self.filename + " not received. Request timed out.")
-                    return False
-                elif not self.bot in self.ircCon.packlists or not self.ircCon.packlists[self.bot]:
-                    return False
-                else:
-                    self.filename = self.ircCon.packlists[self.bot]
-                    self.ircCon.logInfo(self.filename + " received.")
-                    return True
+            self.ircCon.lastRequestedPack[self.bot] = None
+            while self.ircCon.lastRequestedPack[self.bot] == None:
+                self.ircCon.lastRequestedPack[self.bot] = "#1"
+                self.ircCon.msg(self.bot, "XDCC SEND #1")
+                if self.bot not in self.ircCon.packlistConditions:
+                    self.ircCon.packlistConditions[self.bot] = Condition(Lock())
+                with self.ircCon.packlistConditions[self.bot]:
+                    self.ircCon.packlistConditions[self.bot].wait()
+                    self.ircCon.logInfo("waitOnPacklist lastRequestedPack: " + str(self.ircCon.lastRequestedPack[self.bot]))
+                    if self.ircCon.lastRequestedPack[self.bot] == None:
+                        self.ircCon.logInfo("waitOnPacklist continuing")
+                        continue
+                    if not self.ircCon.packlistConditions[self.bot]:
+                        self.ircCon.logInfo(self.filename + " not received. Request timed out.")
+                        return False
+                    elif not self.bot in self.ircCon.packlists or not self.ircCon.packlists[self.bot]:
+                        return False
+                    else:
+                        self.filename = self.ircCon.packlists[self.bot]
+                        self.ircCon.logInfo(self.filename + " received.")
+                        return True
     def parseFile(self):
         with open(self.filename, mode = "r", encoding = encoding, errors = "ignore") as f:
             lines = f.read().splitlines()
@@ -373,9 +388,10 @@ class PacklistParsingThread(Thread):
                 except:
                     continue
     def checkCandidate(self):
-        logging.debug("candidate: " + self.name)
+        self.ircCon.logInfo("candidate: " + self.name)
         filesystemLock.acquire()
         if not isfile(self.name):
+            filesystemLock.release()
             if not self.ircCon.gui:
                 self.ircCon.printAndLogInfo("Requesting pack " + self.pack + " " + self.name)
             else:
@@ -383,16 +399,17 @@ class PacklistParsingThread(Thread):
                     self.ircCon.gui.addLine("Requesting pack ", self.ircCon.gui.cyanText)
                     self.ircCon.gui.addLine(self.pack, self.ircCon.gui.yellowText)
                     self.ircCon.gui.addLine(" " + self.name + "\n")
-            self.ircCon.responseConditions[self.bot] = Condition(Lock())
-            with self.ircCon.responseConditions[self.bot]:
-                self.ircCon.msg(self.bot, "XDCC SEND %s" % self.pack)
-                filesystemLock.release()
-                self.ircCon.responseConditions[self.bot].wait()
-            del self.ircCon.responseConditions[self.bot]
+            self.ircCon.lastRequestedPack[self.bot] = None
+            while self.ircCon.lastRequestedPack[self.bot] == None:
+                self.ircCon.responseConditions[self.bot] = Condition(Lock())
+                self.ircCon.lastRequestedPack[self.bot] = self.pack
+                with self.ircCon.responseConditions[self.bot]:
+                    self.ircCon.msg(self.bot, "XDCC SEND %s" % self.pack)
+                    self.ircCon.responseConditions[self.bot].wait()
+                del self.ircCon.responseConditions[self.bot]
         else:
             filesystemLock.release()
-            logging.debug("File already exists.")    
-
+            self.ircCon.logInfo("File already exists.")
 
 """ 
     An IRCConnection acts as the 'command thread'.
@@ -404,6 +421,7 @@ class IRCConnection:
         self.host, self.port = network, port
         self.nick = self.ident = self.realname = nick
         self.gui = window
+        self.lastRequestedPack = dict()
         # stores the filenames of the packlists for each bot
         # assuming bot names are unique and, on an irc server, they are
         self.packlists = dict()
