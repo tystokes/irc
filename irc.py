@@ -217,8 +217,7 @@ class ListenerThread(Thread):
                 pt.start()
     def reconnect(self, msg):
         self.ircCon.printAndLogInfo(msg)
-        self.ircCon.listenerThread = ListenerThread(self.ircCon)
-        self.ircCon.connect(5)
+        self.ircCon.connect(3)
 
 """ Handles parsing incoming data from the irc socket. """
 class IRCParseThread(Thread):
@@ -232,6 +231,13 @@ class IRCParseThread(Thread):
         # check for link close
         tmp = search(r"^ERROR :Closing Link:", self.data)
         if tmp:
+            if self.ircCon.connectedCondition != None:
+                with self.ircCon.connectedCondition:
+                    self.ircCon.unableToConnect = True
+                    self.ircCon.connectedCondition.notify()
+        tmp = search(r"\* " + self.ircCon.nick + " :Nickname is already in use.", self.data)
+        if tmp:
+            self.ircCon.nick += "_"
             if self.ircCon.connectedCondition != None:
                 with self.ircCon.connectedCondition:
                     self.ircCon.unableToConnect = True
@@ -464,8 +470,6 @@ class IRCConnection:
                 self.printAndLogInfo("Error: Connection failed.")
             except Exception as err:
                 self.printAndLogInfo("error: {0}".format(err))
-            self.printAndLogInfo("Sleeping for 15")
-            sleep(15)
 
     def catchSend(self, string):
         try:

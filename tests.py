@@ -16,7 +16,7 @@ def test_cs():
         assert(tmp == ("1.%i TiB" % x))
     assert_raises(ValueError, convertSize, -1)
 
-@timed(10)
+@timed(45)
 def test_packlist():
     if isfile('xdcc.txt'):
         remove('xdcc.txt')
@@ -34,7 +34,7 @@ def test_packlist():
     else:
         raise Exception('Packlist did not download properly.')
 
-@timed(10)
+@timed(45)
 def test_parsing():
     if isfile('test.txt'):
         remove('test.txt')
