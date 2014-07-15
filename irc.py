@@ -138,10 +138,12 @@ class DCCThread(Thread):
                     lastTime = now
                     lastTotal = bytesReceived
                     if not self.ircCon.gui:
-                        self.ircCon.lockPrint(convertSize(rate) + "/s ")
+                        self.ircCon.lockPrint(convertSize(rate) + "/s [" +
+                            convertSize(bytesReceived) + "/" + convertSize(self.filesize) + "] ")
                     else:
                         with printLock:
-                            self.ircCon.gui.addInput(convertSize(rate) + "/s")
+                            self.ircCon.gui.addInput(convertSize(rate) + "/s", begin = True)
+                            self.ircCon.gui.addInput(" [" + convertSize(bytesReceived) + "/" + convertSize(self.filesize) + "]", self.ircCon.gui.greenText, pad = True)
             f.close()
             if not self.ircCon.gui:
                 self.ircCon.lockPrint("Transfer of " + self.filename + " complete.")
@@ -150,9 +152,10 @@ class DCCThread(Thread):
                     self.ircCon.gui.addLine("Transfer of ", self.ircCon.gui.cyanText)
                     self.ircCon.gui.addLine(self.filename)
                     self.ircCon.gui.addLine(" complete.\n", self.ircCon.gui.cyanText)
-                    self.ircCon.gui.addInput("")
-        except:
-            logging.warning("Exception occurred during file writing.")
+                    self.ircCon.gui.clearInput()
+        except Exception as e:
+            with printLock:
+                self.ircCon.printAndLogInfo("Exception occurred during file writing.")
         return True
     def shouldOverwrite(self): # Perhaps take in user input?
         if search(r".txt\Z", self.filename):

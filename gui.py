@@ -10,7 +10,7 @@ class IRCWindow(Thread):
     def run(self):
         wrapper(self.main)
         curses.endwin()
-    
+
     def pad(self, string):
         return string + " " * (self.width - 1 - len(string))
 
@@ -22,8 +22,17 @@ class IRCWindow(Thread):
         self.scrollPos = self.scrollPosMax
         self.refresh()
 
-    def addInput(self, string, style = 0):
-        self.inputLine.addstr(0, 0, self.pad(string), style)
+    def clearInput(self):
+        self.inputLine.addstr(0, 0, self.pad(" "), 0)
+        self.refresh()
+
+    def addInput(self, string, style = 0, begin = False, pad = False):
+        if pad:
+            string += " " * (self.width - 1 - self.inputLine.getyx()[1] - len(string))
+        if begin:
+            self.inputLine.addstr(0, 0, string, style)
+        else:
+            self.inputLine.addstr(string, style)
         self.refresh()
 
     def main(self, stdscr):
