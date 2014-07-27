@@ -290,6 +290,13 @@ class IRCParseThread(Thread):
                 self.ircCon.notice(self.ircCon, "VERSION irc.py")
             elif search(r"\x01DCC SEND", trailing):
                 self.parseSend()
+        if command == "NOTICE" and params is not None and params == self.ircCon.nick:
+            if trailing is not None and search(r"\*\* You can only have .* at a time, Added you to the main queue for", trailing):
+                if not self.ircCon.gui:
+                    self.ircCon.printAndLogInfo(asctime(localtime()) + " Waiting in queue for pack.")
+                else:
+                    with printLock:
+                        self.ircCon.gui.addLine("Waiting in queue.\n")
         # recv md5 data for a file
         tmp = search(r":([^!^:]+)![^!]+NOTICE " + self.ircCon.nick + r" : md5sum +([a-f0-9]+)", self.data)
         if tmp:
