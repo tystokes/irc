@@ -1,6 +1,6 @@
 import curses
 from curses import wrapper
-from threading import Thread
+from threading import Thread, Event
 
 class IRCWindow(Thread):
     def __init__(self, event):
@@ -98,8 +98,10 @@ class IRCWindow(Thread):
 
 # Test Case
 """
-win = IRCWindow()
+event = Event()
+win = IRCWindow(event)
 win.start()
+
 
 for i in range(1, 125):
     win.addLine("test" + str(i)+ "\n")

@@ -1,50 +1,11 @@
 #!/usr/bin/python
-import irc, gui
-from threading import Event
+import irc
 """ irc usage example """
 
-# git stuffs, uncomment for automatic updating
-# requires command line git to be installed
-# commits any changes made to the main and attempts to merge with master
-"""
-from subprocess import call, check_output, Popen
-import sys, os, re
+# IRCConnection(network, port, nick, gui)
+con = irc.IRCConnection("irc.rizon.net", 6667, "roughneck", gui = True)
 
-filename = str(os.path.abspath(__file__))
-filename = re.sub(r"[^\\^/^.^:^A-Z^a-z^0-9^_^-]" , "", filename)
-print("stripped filename = " + filename)
-
-autoCommit = call("git commit -am \"Auto commit main\"", shell=True)
-print("autoCommit return code : " + str(autoCommit))
-try:
-	gitPull = check_output("git pull origin master", shell=True)
-	if not "Already up-to-date" in gitPull.decode('utf-8'):
-		Popen([sys.executable, filename], shell=True)
-		sys.exit(0)
-except Exception as e:
-	checkoutTheirs = call("git checkout --theirs .*", shell=True)
-	print("checkoutTheirs return code : " + str(checkoutTheirs))
-	checkoutOurMain = call("git checkout --ours main.py", shell=True)
-	print("checkoutOurMain return code : " + str(checkoutOurMain))
-	checkoutOurMainGUI = call("git checkout --ours main-gui.py", shell=True)
-	print("checkoutOurMainGUI return code : " + str(checkoutOurMainGUI))
-	Popen([sys.executable, filename], shell=True)
-	sys.exit(0)
-"""
-
-# GUI stuff
-# All threads must be daemons so they exit if the main exits
-window_ready = Event()
-window = gui.IRCWindow(window_ready)
-window.daemon = True
-window.start()
-
-# The window parameter is an optional IRCWindow object to attach to
-# otherwise runs headless
-window_ready.wait() # wait for window to be initialized
-con = irc.IRCConnection("irc.rizon.net", 6667, "roughneck", window)
-
-# Bots I use often on the rizon network
+# Add bots that offer packlists here:
 bots = ["Ginpachi-Sensei"]
 
 # Fill in keywords to search for regarding each series
@@ -60,4 +21,4 @@ for bot in bots:
     ppt.start()
 
 # Program exits if IRCWindow thread returns
-window.join()
+con.gui.join()

@@ -5,6 +5,7 @@ Written for python 3.
 """
 __author__ = "Tyler 'Olaf' Stokes <tystokes@umich.edu>"
 
+import gui
 import socket
 import logging
 from struct import pack
@@ -12,7 +13,7 @@ from time import time, sleep, localtime, asctime
 from re import match, search, sub
 from os.path import isfile, getsize
 from math import log
-from threading import Thread, Lock, Condition
+from threading import Thread, Lock, Condition, Event
 from sys import getfilesystemencoding
 from hashlib import md5
 
@@ -448,10 +449,12 @@ class IRCConnection:
     It starts a ListenerThread so it doesn't have
     to worry about 'blocking' recv calls.
     """
-    def __init__(self, network, port, nick, window = None):
+    def __init__(self, network, port, nick, gui=False):
         self.host, self.port = network, port
         self.nick = self.ident = self.realname = nick
-        self.gui = window
+        self.gui = gui
+        if gui:
+            self.initializeGUI()
         self.lastRequestedPack = dict()
         # stores the filenames of the packlists for each bot
         # assuming bot names are unique and, on an irc server, they are
@@ -466,6 +469,13 @@ class IRCConnection:
         # stores join cv's for each channel
         self.joinConditions = dict()
         self.connect()
+
+    def initializeGUI(self):
+        window_ready = Event()
+        self.gui = gui.IRCWindow(window_ready)
+        self.gui.daemon = True
+        self.gui.start()
+        window_ready.wait() # wait for window to be initialized
 
     def connect(self, timeout = 0):
         while True:
