@@ -2,7 +2,7 @@
 
 Lightweight irc client for xdcc (and maybe more!)
 
-![Example Usage](./doc/main1.png)
+![Example Usage](./doc/main2.png)
 
 ## running the code
 

@@ -13,4 +13,4 @@ packs = [r"\[Doki\] Anime A.*\[720p\]"] # Matches "[Doki] Anime A<anything here>
 ppt = irc.PacklistParsingThread(con, bot, packs)
 ppt.start()
 
-ppt.join() # Wait for gui thread to return before exiting
+ppt.join() # Wait for parsing thread to return
