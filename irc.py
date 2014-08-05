@@ -411,9 +411,8 @@ class PacklistParsingThread(Thread):
                 try:
                     (self.pack, self.dls, self.size, self.name) = [t(s) for t,s in zip((str,int,str,str),
                     search(r"(\S+) +(\d+)x \[([^\[^\]]+)\] ([^\"^\n]+)", line).groups())]
-                    for kw in series:
-                        if not search(kw, self.name):
-                            raise Exception("regex failure")
+                    if not search(series, self.name):
+                        raise Exception("regex failure")
                     self.checkCandidate()
                 except:
                     continue
@@ -449,8 +448,14 @@ class IRCConnection:
     It starts a ListenerThread so it doesn't have
     to worry about 'blocking' recv calls.
     """
-    def __init__(self, network, port, nick, gui=False):
-        self.host, self.port = network, port
+    def __init__(self, network, nick, gui = False):
+        port_regex = search(r":([0-9]+)\Z", network).group(1)
+        if port_regex:
+            self.host = network[:-(len(port_regex)+1)]
+            self.port = int(port_regex)
+        else:
+            self.host = network
+            self.port = 6667
         self.nick = self.ident = self.realname = nick
         self.gui = gui
         if gui:

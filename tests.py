@@ -20,9 +20,9 @@ def test_cs():
 def test_packlist():
     if isfile('xdcc.txt'):
         remove('xdcc.txt')
-    con = IRCConnection("didyouseeitornot.com", 6667, "test-roughneck")
+    con = IRCConnection("didyouseeitornot.com:6667", "test-roughneck")
     bot = "xdcc"
-    series = [[r'a file that doesnt exist']]
+    series = [r'a file that doesnt exist']
     def kill():
         ppt.kill()
     ppt = PacklistParsingThread(con, bot, series, 30, kill)
@@ -38,9 +38,9 @@ def test_packlist():
 def test_parsing():
     if isfile('test.txt'):
         remove('test.txt')
-    con = IRCConnection("didyouseeitornot.com", 6667, "test-roughneck2")
+    con = IRCConnection("didyouseeitornot.com:6667", "test-roughneck2")
     bot = "xdcc"
-    series = [[r'test\.txt']]
+    series = [r'test\.txt']
     def kill():
         ppt.kill()
     ppt = PacklistParsingThread(con, bot, series, 30, kill)
