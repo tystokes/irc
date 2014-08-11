@@ -40,6 +40,9 @@ class IRCWindow(Thread):
         self.scrollPos = int(0); self.maxScroll = 100
         self.height, self.width = stdscr.getmaxyx()
 
+        stdscr.clear()
+        stdscr.refresh()
+
         curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_YELLOW)
         curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_BLUE)
         curses.init_pair(3, curses.COLOR_CYAN, curses.COLOR_BLACK)
