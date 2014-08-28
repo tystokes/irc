@@ -1,12 +1,18 @@
 # irc
+[![Build Status](https://travis-ci.org/tystokes/irc.svg?branch=master)](https://travis-ci.org/tystokes/irc)
 
 Lightweight irc client for xdcc (and maybe more!)
 
-![Example Usage](./doc/main2.png)
+![Example Usage](./doc/main3.png)
 
 ## running the code
 
-Open main.py or main-gui.py for example usages.
+Look at main.py or main-gui.py for example usages.
+
+Run with:
+```bash
+python main.py
+```
 
 ## user interface
 

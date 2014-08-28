@@ -4,6 +4,7 @@ from nose.tools import *
 from os import remove
 from os.path import isfile
 from time import sleep
+from random import randint
 
 def test_cs():
     assert(convertSize(0) == "0 B")
@@ -16,19 +17,18 @@ def test_cs():
         assert(tmp == ("1.%i TiB" % x))
     assert_raises(ValueError, convertSize, -1)
 
+@timed(15)
+def test_connect_strings():
+    IRCConnection("irc.rizon.net", "testroughneck" + str(randint(1000, 9999)))
+    sleep(1)
+    IRCConnection("irc.rizon.net:6667", "testroughneck"+ str(randint(1000, 9999)))
+
 @timed(45)
 def test_packlist():
     if isfile('xdcc.txt'):
         remove('xdcc.txt')
-    con = IRCConnection("didyouseeitornot.com:6667", "test-roughneck")
-    bot = "xdcc"
-    series = [r'a file that doesnt exist']
-    def kill():
-        ppt.kill()
-    ppt = PacklistParsingThread(con, bot, series, 30, kill)
-    ppt.start()
-    ppt.join()
-    print('packlist')
+    con = IRCConnection("didyouseeitornot.com:6667", "testroughneck"+ str(randint(1000, 9999)))
+    con.parseBot("xdcc", [r'a file that doesnt exist'])
     if isfile('xdcc.txt'):
         remove('xdcc.txt')
     else:
@@ -38,15 +38,8 @@ def test_packlist():
 def test_parsing():
     if isfile('test.txt'):
         remove('test.txt')
-    con = IRCConnection("didyouseeitornot.com:6667", "test-roughneck2")
-    bot = "xdcc"
-    series = [r'test\.txt']
-    def kill():
-        ppt.kill()
-    ppt = PacklistParsingThread(con, bot, series, 30, kill)
-    ppt.start()
-    ppt.join()
-    print('parsing')
+    con = IRCConnection("didyouseeitornot.com:6667", "testroughneck"+ str(randint(1000, 9999)))
+    con.parseBot("xdcc", [r'test\.txt'])
     if isfile('test.txt'):
         remove('test.txt')
     else:

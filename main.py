@@ -4,13 +4,8 @@ import irc
 
 con = irc.IRCConnection(network = "irc.rizon.net:6667", nick = "roughneck")
 
-bot = "Ginpachi-Sensei" # iroffer bot with packlist
-
-""" A list of regular expressions used to parse the iroffer bot's packlist """
+""" A list of regular expressions used to parse the iroffer bot's packlist. """
 packs = [r"\[Doki\] Anime A.*\[720p\]"] # Matches "[Doki] Anime A<anything here>[720p]"
 
 """ Use an IRCConnection object to parse a bot's packlist and download packs. """
-ppt = irc.PacklistParsingThread(con, bot, packs)
-ppt.start()
-
-ppt.join() # Wait for parsing thread to return
+con.parseBot("Ginpachi-Sensei", packs) # parse bot "Ginpachi-Sensei" for packs

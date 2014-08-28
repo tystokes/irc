@@ -5,18 +5,24 @@ Written for python 3.
 """
 __author__ = "Tyler 'Olaf' Stokes <tystokes@umich.edu>"
 
-import gui
+try:
+    import gui
+    NO_GUI = False
+except:
+    NO_GUI = True
 import socket
 import logging
 from struct import pack
 from time import time, sleep, localtime, asctime
 from re import match, search, sub
-from os.path import isfile, getsize
+from os import chdir
+from os.path import isfile, getsize, realpath, dirname
 from math import log
 from threading import Thread, Lock, Condition, Event
 from sys import getfilesystemencoding
 from hashlib import md5
 
+chdir(realpath(dirname(__file__))) # Switch the current working directory to directory this file is in
 encoding = getfilesystemencoding()
 
 # Set us up a log file
@@ -194,7 +200,8 @@ class DCCThread(Thread):
 
 
 class ListenerThread(Thread):
-    """A ListenerThread blocks until it receives bytes on the irc socket.
+    """
+    A ListenerThread blocks until it receives bytes on the irc socket.
     It then spawns a IRCParseThread that handles parsing the data.
     """
     def __init__(self, ircConnection):
@@ -340,7 +347,7 @@ class PacklistParsingThread(Thread):
     A PacklistParsingThread searches an XDCC bot's packlist
     for packs that match user-specified keywords.
     """
-    def __init__(self, ircConnection, bot, series, sleepTime = 3600 * 3, finishFunction = None):
+    def __init__(self, ircConnection, bot, series, sleepTime = 3600 * 3, repeat = True):
         Thread.__init__(self)
         self.filename = None
         self.bot = bot
@@ -349,7 +356,7 @@ class PacklistParsingThread(Thread):
         self.series = series
         self.f = None
         self.sleepTime = sleepTime
-        self.finishFunction = finishFunction
+        self.repeat = repeat
 
     def kill(self):
         self.die = True
@@ -377,11 +384,10 @@ class PacklistParsingThread(Thread):
                     self.ircCon.gui.addLine(self.bot, self.ircCon.gui.magentaText)
                     self.ircCon.gui.addLine(" for packs.\n")
             timeShouldSleep = self.sleepTime - (time() - startTime)
-            if self.finishFunction:
-                self.finishFunction()
+            if not self.repeat:
+                return
             elif packlistArrived and timeShouldSleep > 0:
                 sleep(timeShouldSleep)
-        return
 
     def waitOnPacklist(self):
             self.ircCon.lastRequestedPack[self.bot] = None
@@ -449,17 +455,21 @@ class IRCConnection:
     to worry about 'blocking' recv calls.
     """
     def __init__(self, network, nick, gui = False):
-        port_regex = search(r":([0-9]+)\Z", network).group(1)
+        port_regex = search(r":([0-9]+)\Z", network)
         if port_regex:
-            self.host = network[:-(len(port_regex)+1)]
-            self.port = int(port_regex)
+            port_string = port_regex.group(1)
+            self.host = network[:-(len(port_string)+1)]
+            self.port = int(port_string)
         else:
             self.host = network
             self.port = 6667
         self.nick = self.ident = self.realname = nick
         self.gui = gui
-        if gui:
+        if gui and not NO_GUI:
             self.initializeGUI()
+        elif gui:
+            self.gui = False
+            print("No curses module detected. Install curses or run with gui = False.")
         self.lastRequestedPack = dict()
         # stores the filenames of the packlists for each bot
         # assuming bot names are unique and, on an irc server, they are
@@ -547,8 +557,18 @@ class IRCConnection:
             self.gui.addLine("#" + chan, self.gui.yellowText)
             self.gui.addLine(".\n")
 
+    def parseBot(self, bot, packs, blocking = True, sleepTime = 3600 * 3, repeat = False):
+        ppt = PacklistParsingThread(self, bot, packs, sleepTime = sleepTime, repeat = repeat)
+        ppt.daemon = True
+        ppt.start()
+        if blocking:
+            ppt.join()
+            return
+        return ppt
+
     def printAndLogInfo(self, string):
         """Acquires the print lock then both logs the info and prints it"""
+
         s = string.encode(encoding, "replace").decode(encoding, "replace")
         with printLock:
             logging.info(s)
