@@ -1,3 +1,6 @@
+# color constants
+yellowBG = blueBG = cyanText = greenText = yellowText = magentaText = redText = blueText = None
+
 import curses
 from curses import wrapper
 from threading import Thread, Event
@@ -15,6 +18,8 @@ class IRCWindow(Thread):
         return string + " " * (self.width - 1 - len(string))
 
     def addLine(self, string, style = 0):
+        if style is None:
+            style = 0
         self.scroll.addstr(string, style)
         self.scrollPosMax = self.scroll.getyx()[0] - (self.height - 4)
         if self.scrollPosMax < 0:
@@ -52,14 +57,16 @@ class IRCWindow(Thread):
         curses.init_pair(7, curses.COLOR_RED, curses.COLOR_BLACK)
         curses.init_pair(8, curses.COLOR_BLUE, curses.COLOR_BLACK)
 
-        self.yellowBG = curses.color_pair(1)
-        self.blueBG = curses.color_pair(2)
-        self.cyanText = curses.color_pair(3)
-        self.greenText = curses.color_pair(4)
-        self.yellowText = curses.color_pair(5)
-        self.magentaText = curses.color_pair(6)
-        self.redText = curses.color_pair(7)
-        self.blueText = curses.color_pair(8)
+        global yellowBG, blueBG, cyanText, greenText, yellowText, magentaText, redText, blueText
+
+        yellowBG = curses.color_pair(1)
+        blueBG = curses.color_pair(2)
+        cyanText = curses.color_pair(3)
+        greenText = curses.color_pair(4)
+        yellowText = curses.color_pair(5)
+        magentaText = curses.color_pair(6)
+        redText = curses.color_pair(7)
+        blueText = curses.color_pair(8)
 
         curses.mouseinterval(0)
         curses.mousemask(curses.BUTTON4_PRESSED | curses.BUTTON2_PRESSED)
@@ -85,6 +92,10 @@ class IRCWindow(Thread):
                 self.scrollPos -= (self.height - 3)//2
             elif key == curses.KEY_NPAGE:
                 self.scrollPos += (self.height - 3)//2
+            elif key == curses.KEY_UP:
+                self.scrollPos -= 1
+            elif key == curses.KEY_DOWN:
+                self.scrollPos += 1
 
             if self.scrollPos < 0:
                 self.scrollPos = 0
@@ -93,9 +104,9 @@ class IRCWindow(Thread):
 
     def refresh(self):
         self.scroll.refresh(self.scrollPos, 0, 1, 0, self.height - 3, self.width)
-        self.topLine.addstr(0, 0, self.pad("scrollPosMax: " + str(self.scrollPosMax)), self.blueBG)
+        self.topLine.addstr(0, 0, self.pad("scrollPosMax: " + str(self.scrollPosMax)), blueBG)
         self.topLine.refresh()
-        self.infoLine.addstr(0, 0, self.pad("scrollPos: " + str(self.scrollPos)), self.blueBG)
+        self.infoLine.addstr(0, 0, self.pad("scrollPos: " + str(self.scrollPos)), blueBG)
         self.infoLine.refresh()
         self.inputLine.refresh()
 
@@ -105,6 +116,7 @@ event = Event()
 win = IRCWindow(event)
 win.start()
 
+event.wait()
 
 for i in range(1, 125):
     win.addLine("test" + str(i)+ "\n")
