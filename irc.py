@@ -80,6 +80,7 @@ class TokenBucket(Thread):
         self.maxTokens = maxTokens
         self.tokenCondition = Condition(Lock())
         self.die = False
+        self.daemon = True
         self.start()
 
     def run(self):
@@ -92,6 +93,7 @@ class TokenBucket(Thread):
 
     def stop(self):
         self.die = True
+        self.tokenConidtion.notifyAll()
 
     def getToken(self):
         while not self.die:
@@ -168,8 +170,8 @@ class DCCThread(Thread):
             while bytesReceived != self.filesize:
                 try:
                     self.ircCon.bucket.getToken()
-                except Exception as e:
-                    print("Exception", e)
+                except AttributeError:
+                    pass
                 tmp = None
                 try:
                     tmp = self.socket.recv(4096)
