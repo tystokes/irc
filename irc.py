@@ -63,6 +63,43 @@ def convertSize(size):
         tmp = round(s, 1)
     return "%s %s" % (tmp, names[i])
 
+class TokenBucket(Thread):
+    """
+    A TokenBucket helps with rate limiting.
+    The bucket fills with gainAmmount tokens every gainRate secods.
+    It fills until the bucket contains maxTokens tokens.
+    You can request a token from the bucket. If the bucket has
+    a token you continue, otherwise you must wait until
+    the bucket has been filled.
+    """
+    def __init__(self, startTokens, gainRate, maxTokens, gainAmmount = 1):
+        Thread.__init__(self)
+        self.tokens = startTokens
+        self.gainRate = gainRate
+        self.gainAmmount = gainAmmount
+        self.maxTokens = maxTokens
+        self.tokenCondition = Condition(Lock())
+        self.die = False
+        self.start()
+
+    def run(self):
+        while not self.die:
+            sleep(self.gainRate)
+            with self.tokenCondition:
+                self.tokens = min(self.maxTokens,
+                    self.tokens + self.gainAmmount)
+                self.tokenCondition.notify()
+
+    def stop(self):
+        self.die = True
+
+    def getToken(self):
+        while not self.die:
+            with self.tokenCondition:
+                if self.tokens >= 1:
+                    self.tokens -= 1
+                    return True
+                self.tokenCondition.wait()
 
 class DCCThread(Thread):
     """
@@ -129,6 +166,10 @@ class DCCThread(Thread):
             lastTotal = 0
             bytesReceived = 0
             while bytesReceived != self.filesize:
+                try:
+                    self.ircCon.bucket.getToken()
+                except Exception as e:
+                    print("Exception", e)
                 tmp = None
                 try:
                     tmp = self.socket.recv(4096)
@@ -454,7 +495,7 @@ class IRCConnection:
     It starts a ListenerThread so it doesn't have
     to worry about 'blocking' recv calls.
     """
-    def __init__(self, network, nick, gui = False):
+    def __init__(self, network, nick, gui = False, maxRate = 0):
         port_regex = search(r":([0-9]+)\Z", network)
         if port_regex:
             port_string = port_regex.group(1)
@@ -470,6 +511,8 @@ class IRCConnection:
         elif gui:
             self.gui = False
             print("No curses module detected. Install curses or run with gui = False.")
+        if maxRate > 0:
+            self.bucket = TokenBucket(1, 4096 / 1024 / (maxRate / 4), 4, gainAmmount = 4)
         self.lastRequestedPack = dict()
         # stores the filenames of the packlists for each bot
         # assuming bot names are unique and, on an irc server, they are
