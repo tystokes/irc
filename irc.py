@@ -323,7 +323,7 @@ class IRCParseThread(Thread):
                 self.parseSend()
         if command == "NOTICE" and params is not None and params == self.ircCon.nick:
             if trailing is not None and search(r"\*\* You can only have .* at a time, Added you to the main queue for", trailing):
-                self.ircCon.pout(((asctime(localtime()) + " Waiting in queue for pack.", None),))
+                self.ircCon.pout(((asctime(localtime()) + " Waiting in queue for pack.\n", None),))
         # recv md5 data for a file
         tmp = search(r":([^!^:]+)![^!]+NOTICE " + self.ircCon.nick + r" : md5sum +([a-f0-9]+)", self.data)
         if tmp:
@@ -473,7 +473,7 @@ class IRCConnection:
         else:
             self.gui = None
         if maxRate > 0:
-            self.bucket = TokenBucket(1, 4096 / 1024 / (maxRate / 4), 4, gainAmmount = 4)
+            self.bucket = TokenBucket(4, 4096 / 1024 / (maxRate / 4), 4, gainAmmount = 4)
         self.lastRequestedPack = dict()
         # stores the filenames of the packlists for each bot
         # assuming bot names are unique and, on an irc server, they are
