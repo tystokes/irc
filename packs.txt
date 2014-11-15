@@ -1,0 +1,15 @@
+# Insert regular expressions (regex's), one-per-line.
+# These will be used to parse an irc bot's packlist for packs.
+# Blank lines and those starting with a pound/'hashtag' are ignored.
+
+\[HorribleSubs\] Anime.*\[720p\]
+
+# The regular expression above looks for a file with the name like:
+# [HorribleSubs] Anime<anything here>[720p]
+# notice the . in a regular expression means 'match any character'
+# The * means 'match the previous character between 0 and infinity times'
+# So .* matches any character any number of times.
+# Brackets have a special meaning in a regex
+# So if you want to search for a string containing a bracket
+# you must 'escape' the bracket by putting a single \ in front of it
+# Use the above template for dowloading a series of episodes.

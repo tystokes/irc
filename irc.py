@@ -14,7 +14,7 @@ import socket
 import logging
 from struct import pack
 from time import time, sleep, localtime, asctime
-from re import match, search, sub
+from re import match, search, sub, escape
 from os import chdir
 from os.path import isfile, getsize, realpath, dirname
 from math import log
@@ -35,6 +35,37 @@ filesystemLock = Lock()
 printLock = Lock()
 # Regular expression string used to parse IRC messages
 MESSAGE_REGEX = r"(:(?P<prefix>((?P<nickname>[^@!\s]+)((((!(?P<user>\S+))?)@(?P<host>\S+))?))|(\S*)) )?(?P<command>\S+) ((?!:)(?P<params>.+?) )?:(?P<trailing>.+)"
+
+
+def parse(filename):
+    """Parse the specified file for regexes."""
+    if not isfile(filename):
+        with open(filename, "w") as f:
+            sample = """# Insert regular expressions (regex's), one-per-line.
+# These will be used to parse an irc bot's packlist for packs.
+# Blank lines and those starting with a pound/'hashtag' are ignored.
+
+\[HorribleSubs\] Anime.*\[720p\]
+
+# The regular expression above looks for a file with the name like:
+# [HorribleSubs] Anime<anything here>[720p]
+# notice the . in a regular expression means 'match any character'
+# The * means 'match the previous character between 0 and infinity times'
+# So .* matches any character any number of times.
+# Brackets have a special meaning in a regex
+# So if you want to search for a string containing a bracket
+# you must 'escape' the bracket by putting a single \ in front of it
+# Use the above template for dowloading a series of episodes."""
+            f.write(sample)
+    try:
+        with open(filename, "r") as f:
+            final = list()
+            for l in f.read().split("\n"):
+                if len(l) > 0 and not l.startswith("#"):
+                    final.append(l)
+            return final
+    except:
+        raise
 
 def send(ircConnection, string):
     """
@@ -284,7 +315,7 @@ class IRCParseThread(Thread):
     def run(self):
         self.ircCon.logInfo("\"" + self.data + "\"")
         regex = match(MESSAGE_REGEX, self.data)
-        nickname, command, params, trailing = regex.group("nickname"), regex.group("command"), regex.group("params"), regex.group("trailing")
+        nickname, command, params, trailing = (regex.group(x) for x in ("nickname", "command", "params", "trailing"))
         # check for link close
         tmp = search(r"^ERROR :Closing Link:", self.data)
         if tmp:
@@ -560,7 +591,6 @@ class IRCConnection:
 
     def printAndLogInfo(self, string):
         """Acquires the print lock then both logs the info and prints it"""
-
         s = string.encode(encoding, "replace").decode(encoding, "replace")
         with printLock:
             logging.info(s)
@@ -587,7 +617,7 @@ class IRCConnection:
                 color = gui.redText
             self.gui.addLine(string + "\n", color)
 
-    def pout(self, l, clearInput = False, section = "lines"):
+    def pout(self, l, clearInput = False):
         if self.gui is None:
             for tup in l:
                 print(tup[0], end="")
