@@ -14,6 +14,7 @@ import socket
 import logging
 from struct import pack
 from time import time, sleep, localtime, asctime
+from datetime import timedelta
 from re import match, search, sub
 from os import chdir
 from os.path import isfile, getsize, realpath, dirname
@@ -164,7 +165,7 @@ class DCCThread(Thread):
             self.socket.close()
             filesystemLock.release()
             return False
-        self.ircCon.pout((("Downloading", gui.cyanText), (" " + self.filename + " ", None), ("[" + convertSize(self.filesize) + "]\n", gui.greenText)))
+        self.ircCon.pout((("Downloading", gui.cyanText), (" %s " % self.filename, None), ("[%s]\n" % convertSize(self.filesize), gui.greenText)))
         f = None
         try:
             f = open(self.filename, "wb")
@@ -187,7 +188,7 @@ class DCCThread(Thread):
                 try:
                     tmp = self.socket.recv(4096)
                 except socket.error as socketerror:
-                    self.ircCon.lockPrint("Error: " + str(socketerror))
+                    self.ircCon.lockPrint("Error: %s" % str(socketerror))
                     logging.warning("Exception occurred during DCC recv.")
                     self.socket.close()
                     return
@@ -200,14 +201,19 @@ class DCCThread(Thread):
                 now = time()
                 if now - lastTime > 0.5:
                     rate = int((bytesReceived - lastTotal)/(now - lastTime))
+                    try:
+                        eta = str(timedelta(seconds = int((self.filesize - bytesReceived)/(rate))))
+                    except:
+                        eta = "N/A"
                     lastTime = now
                     lastTotal = bytesReceived
                     if self.ircCon.gui is None:
                         self.ircCon.lockPrint(convertSize(rate) + "/s [" +
-                            convertSize(bytesReceived) + "/" + convertSize(self.filesize) + "] ")
+                            convertSize(bytesReceived) + "/" + convertSize(self.filesize) + "] ETA: " + eta)
                     else:
                         self.ircCon.gui.addInput(convertSize(rate) + "/s", begin = True)
-                        self.ircCon.gui.addInput(" [" + convertSize(bytesReceived) + "/" + convertSize(self.filesize) + "]", gui.greenText, pad = True)
+                        self.ircCon.gui.addInput(" [" + convertSize(bytesReceived) + "/" + convertSize(self.filesize) + "]", gui.greenText)
+                        self.ircCon.gui.addInput(" ETA: " + eta, gui.cyanText, pad = True)
             f.close()
             self.ircCon.pout((("Transfer of ", gui.cyanText), (self.filename, None), (" complete.\n", gui.cyanText)), clearInput = True)
         except Exception as e:
@@ -265,7 +271,7 @@ class ListenerThread(Thread):
                 self.reconnect("Error: Socket timout. Reconnecting.")
                 return
             except socket.error as socketerror:
-                self.ircCon.lockPrint("Error: " + str(socketerror))
+                self.ircCon.lockPrint("Error: %s" % str(socketerror))
                 self.ircCon.lockPrint("Quitting listener thread.")
                 return
             # recv returns 0 only when the connection is lost
@@ -273,7 +279,7 @@ class ListenerThread(Thread):
                 self.reconnect("Error: Connection to server lost. Reconnecting.")
                 return
             self.data += new_data
-            self.ircCon.logInfo("total:\"" + self.data + "\"")
+            self.ircCon.logInfo("total:\"%s\"" % self.data)
             if '\r\n' not in self.data:
                 continue
             lines = self.data.split("\r\n")
@@ -302,7 +308,7 @@ class IRCParseThread(Thread):
         self.listenerThread = listenerThread
 
     def run(self):
-        self.ircCon.logInfo("\"" + self.data + "\"")
+        self.ircCon.logInfo("\"%s\"" % self.data)
         regex = match(MESSAGE_REGEX, self.data)
         nickname, command, params, trailing = (regex.group(x) for x in ("nickname", "command", "params", "trailing"))
         # check for link close
@@ -323,7 +329,7 @@ class IRCParseThread(Thread):
             if self.ircCon.connectedCondition is not None:
                 with self.ircCon.connectedCondition:
                     self.ircCon.connectedCondition.notify()
-            send(self.ircCon, "PONG :" + trailing + "\r\n")
+            send(self.ircCon, "PONG :%s\r\n" % trailing)
         # check for welcome message
         if params == self.ircCon.nick and search(r"Welcome to the.*" + self.ircCon.nick, trailing):
             if self.ircCon.connectedCondition is not None:
@@ -347,7 +353,7 @@ class IRCParseThread(Thread):
             if trailing is not None and search(r"\*\* You can only have .* at a time, Added you to the main queue for", trailing):
                 self.ircCon.pout(((asctime(localtime()) + " Waiting in queue for pack.\n", None),))
         # recv md5 data for a file
-        tmp = search(r":([^!^:]+)![^!]+NOTICE " + self.ircCon.nick + r" : md5sum +([a-f0-9]+)", self.data)
+        tmp = search(r":([^!^:]+)![^!]+NOTICE %s : md5sum +([a-f0-9]+)" % self.ircCon.nick, self.data)
         if tmp:
             self.ircCon.logInfo("Got md5 sum")
             bot = tmp.group(1)
@@ -428,7 +434,7 @@ class PacklistParsingThread(Thread):
                     self.ircCon.packlistConditions[self.bot] = Condition(Lock())
                 with self.ircCon.packlistConditions[self.bot]:
                     self.ircCon.packlistConditions[self.bot].wait()
-                    self.ircCon.logInfo("waitOnPacklist lastRequestedPack: " + str(self.ircCon.lastRequestedPack[self.bot]))
+                    self.ircCon.logInfo("waitOnPacklist lastRequestedPack: %s" % str(self.ircCon.lastRequestedPack[self.bot]))
                     if self.ircCon.lastRequestedPack[self.bot] == None:
                         self.ircCon.logInfo("waitOnPacklist continuing")
                         continue
@@ -436,7 +442,7 @@ class PacklistParsingThread(Thread):
                         return False
                     else:
                         self.filename = self.ircCon.packlists[self.bot]
-                        self.ircCon.logInfo(self.filename + " received.")
+                        self.ircCon.logInfo("%s received." % self.filename)
                         return True
 
     def parseFile(self):
@@ -458,7 +464,7 @@ class PacklistParsingThread(Thread):
         filesystemLock.acquire()
         if not isfile(self.name):
             filesystemLock.release()
-            self.ircCon.pout((("Requesting pack ", gui.cyanText), (self.pack, gui.yellowText), (" " + self.name + "\n", None)))
+            self.ircCon.pout((("Requesting pack ", gui.cyanText), (self.pack, gui.yellowText), (" %s\n" % self.name, None)))
             self.ircCon.lastRequestedPack[self.bot] = None
             while self.ircCon.lastRequestedPack[self.bot] == None:
                 self.ircCon.responseEvents[self.bot] = Event()
@@ -491,7 +497,7 @@ class IRCConnection:
         else:
             self.host = network
             self.port = 6667
-        self.nick = self.ident = self.realname = nick
+        self.nick = self.ident = self.realname = str(nick)
         self.gui = gui
         if gui and not NO_GUI:
             self.initializeGUI()
@@ -577,7 +583,7 @@ class IRCConnection:
             self.catchSend("JOIN #%s\r\n" % chan)
             self.joinConditions[chan].wait()
         del self.joinConditions[chan]
-        self.pout((("Joined channel ", gui.cyanText), ("#" + chan, gui.yellowText), ("#" + chan, gui.yellowText), (".\n", None)))
+        self.pout((("Joined channel ", gui.cyanText), ("#%s" % chan, gui.yellowText), (".\n", None)))
 
     def parseBot(self, bot, packs, blocking = True, sleepTime = 3600 * 3, repeat = False):
         ppt = PacklistParsingThread(self, bot, packs, sleepTime = sleepTime, repeat = repeat)
@@ -611,7 +617,7 @@ class IRCConnection:
             color = 0
             if "error:" in string.lower():
                 color = gui.redText
-            self.gui.addLine(string + "\n", color)
+            self.gui.addLine("%s\n" % string, color)
 
     def pout(self, l, clearInput = False):
         if self.gui is None:
