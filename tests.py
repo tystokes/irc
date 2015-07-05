@@ -27,7 +27,7 @@ def test_connect_strings():
 def test_packlist():
     if isfile('xdcc.txt'):
         remove('xdcc.txt')
-    con = IRCConnection("didyouseeitornot.com:6667", "testroughneck"+ str(randint(1000, 9999)))
+    con = IRCConnection("truly.red", "testroughneck"+ str(randint(1000, 9999)))
     con.parseBot("xdcc", [r'a file that doesnt exist'])
     if isfile('xdcc.txt'):
         remove('xdcc.txt')
@@ -38,7 +38,7 @@ def test_packlist():
 def test_parsing():
     if isfile('test.txt'):
         remove('test.txt')
-    con = IRCConnection("didyouseeitornot.com:6667", "testroughneck"+ str(randint(1000, 9999)))
+    con = IRCConnection("truly.red", "testroughneck"+ str(randint(1000, 9999)))
     con.parseBot("xdcc", [r'test\.txt'])
     if isfile('test.txt'):
         remove('test.txt')
