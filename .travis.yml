@@ -3,5 +3,8 @@ python:
   - "3.2"
   - "3.3"
   - "3.4"
+env:
+  - DEBUG=true
 # command to run tests
-script: nosetests
+script: nosetests --nocapture
+sudo: false

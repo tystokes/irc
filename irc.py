@@ -16,24 +16,37 @@ from struct import pack
 from time import time, sleep, localtime, asctime
 from datetime import timedelta
 from re import match, search, sub
-from os import chdir
+from os import chdir, environ
 from os.path import isfile, getsize, realpath, dirname
 from math import log
 from threading import Thread, Lock, Condition, Event
-from sys import getfilesystemencoding
+from sys import getfilesystemencoding, stdout
 from hashlib import md5
 
-chdir(realpath(dirname(__file__))) # Switch the current working directory to directory this file is in
+# Switch the current working directory to directory this file is in
+chdir(realpath(dirname(__file__)))
 encoding = getfilesystemencoding()
 
 # Set us up a log file
-logging.getLogger().addHandler(logging.FileHandler(filename = "irc.log", mode = "w", encoding = encoding))
+logging.getLogger().addHandler(logging.FileHandler(filename="irc.log",
+                                                   mode="w",
+                                                   encoding=encoding))
 logging.getLogger().setLevel(logging.INFO)
-# Global filesystem lock so threads don't make false assumptions over filesystem info.
-# Acquired whenever a thread wants to access/use filesystem info (EX: os.path.isfile()).
+
+streamHandler = logging.StreamHandler(stdout)
+streamHandler.setLevel(logging.INFO)
+fmt = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+streamHandler.setFormatter(fmt)
+
+if "DEBUG" in environ and environ["DEBUG"] == "true":
+    logging.getLogger().addHandler(streamHandler)
+
+# Global filesystem lock.
 filesystemLock = Lock()
 # Regular expression string used to parse IRC messages
-MESSAGE_REGEX = r"(:(?P<prefix>((?P<nickname>[^@!\s]+)((((!(?P<user>\S+))?)@(?P<host>\S+))?))|(\S*)) )?(?P<command>\S+) ((?!:)(?P<params>.+?) )?:(?P<trailing>.+)"
+MESSAGE_REGEX = r"(:(?P<prefix>((?P<nickname>[^@!\s]+)((((!(?P<user>\S+))?)"\
+                r"@(?P<host>\S+))?))|(\S*)) )?(?P<command>\S+) "\
+                r"((?!:)(?P<params>.+?) )?:(?P<trailing>.+)"
 
 
 def parse(filename):
@@ -57,7 +70,8 @@ def parse(filename):
 # Use the above template for dowloading a series of episodes."""
             f.write(sample)
     with open(filename, "r") as f:
-        return [l for l in f.read().split("\n") if len(l) > 0 and not l.startswith("#")]
+        return [l for l in f.read().split("\n")
+                if len(l) > 0 and not l.startswith("#")]
 
 def send(ircConnection, string):
     """
@@ -89,17 +103,17 @@ def convertSize(size):
 class TokenBucket(Thread):
     """
     A TokenBucket helps with rate limiting.
-    The bucket fills with gainAmmount tokens every gainRate secods.
+    The bucket fills with gainAmount tokens every gainRate secods.
     It fills until the bucket contains maxTokens tokens.
     You can request a token from the bucket. If the bucket has
     a token you continue, otherwise you must wait until
     the bucket has been filled.
     """
-    def __init__(self, startTokens, gainRate, maxTokens, gainAmmount = 1):
+    def __init__(self, startTokens, gainRate, maxTokens, gainAmount=1):
         Thread.__init__(self)
         self.tokens = startTokens
         self.gainRate = gainRate
-        self.gainAmmount = gainAmmount
+        self.gainAmount = gainAmount
         self.maxTokens = maxTokens
         self.tokenCondition = Condition(Lock())
         self.die = False
@@ -111,7 +125,7 @@ class TokenBucket(Thread):
             sleep(self.gainRate)
             with self.tokenCondition:
                 self.tokens = min(self.maxTokens,
-                    self.tokens + self.gainAmmount)
+                    self.tokens + self.gainAmount)
                 self.tokenCondition.notify()
 
     def stop(self):
@@ -131,7 +145,8 @@ class DCCThread(Thread):
     A DCCThread handles a DCC SEND request by
     opening up the specified port and receiving the file.
     """
-    def __init__(self, filename, host, port, filesize, ircConnection, sender, md5check = False):
+    def __init__(self, filename, host, port, filesize,
+                 ircConnection, sender, md5check=False):
         Thread.__init__(self)
         self.ircCon = ircConnection
         self.filename = filename
@@ -161,11 +176,14 @@ class DCCThread(Thread):
                 break
             if self.shouldRename():
                 continue
-            self.ircCon.pout(((self.filename, None), (" already exists, closing socket.\n", gui.redText)))
+            self.ircCon.pout(((self.filename, None),
+                              (" already exists, ignoring.\n", gui.redText)))
             self.socket.close()
             filesystemLock.release()
             return False
-        self.ircCon.pout((("Downloading", gui.cyanText), (" %s " % self.filename, None), ("[%s]\n" % convertSize(self.filesize), gui.greenText)))
+        self.ircCon.pout((("Downloading", gui.cyanText),
+                          (" %s " % self.filename, None),
+                          ("[%s]\n" % convertSize(self.filesize), gui.greenText)))
         f = None
         try:
             f = open(self.filename, "wb")
@@ -211,17 +229,19 @@ class DCCThread(Thread):
                         self.ircCon.lockPrint(convertSize(rate) + "/s [" +
                             convertSize(bytesReceived) + "/" + convertSize(self.filesize) + "] ETA: " + eta)
                     else:
-                        self.ircCon.gui.addInput(convertSize(rate) + "/s", begin = True)
+                        self.ircCon.gui.addInput(convertSize(rate) + "/s", begin=True)
                         self.ircCon.gui.addInput(" [" + convertSize(bytesReceived) + "/" + convertSize(self.filesize) + "]", gui.greenText)
-                        self.ircCon.gui.addInput(" ETA: " + eta, gui.cyanText, pad = True)
+                        self.ircCon.gui.addInput(" ETA: " + eta, gui.cyanText, pad=True)
             f.close()
-            self.ircCon.pout((("Transfer of ", gui.cyanText), (self.filename, None), (" complete.\n", gui.cyanText)), clearInput = True)
+            self.ircCon.pout((("Transfer of ", gui.cyanText),
+                              (self.filename, None),
+                              (" complete.\n", gui.cyanText)), clearInput=True)
         except Exception as e:
             self.ircCon.printAndLogInfo("Exception occurred during file writing.")
         return True
 
     def shouldOverwrite(self): # Perhaps take in user input?
-        if search(r".txt\Z", self.filename):
+        if search(r".txt$", self.filename):
             if self.md5check:
                 if getsize(self.filename) != self.filesize:
                     return True
@@ -263,23 +283,27 @@ class ListenerThread(Thread):
 
     def run(self):
         """Main parse loop receives data and parses it for requests."""
+        wait = 5
         started = time()
         while not self.die:
             try:
-                new_data = str(self.ircCon.socket.recv(512), encoding = "UTF-8", errors = "ignore")
+                new_data = str(self.ircCon.socket.recv(512),
+                               encoding="UTF-8", errors="ignore")
             except socket.timeout as socketerror:
                 self.reconnect("Error: Socket timout. Reconnecting.")
                 return
             except socket.error as socketerror:
-                self.ircCon.lockPrint("Error: %s" % str(socketerror))
-                self.ircCon.lockPrint("Quitting listener thread.")
+                if not self.die:
+                    self.ircCon.lockPrint("Error: %s" % str(socketerror))
+                    self.ircCon.lockPrint("Quitting listener thread.")
                 return
             # recv returns 0 only when the connection is lost
             if len(new_data) == 0:
-                self.reconnect("Error: Connection to server lost. Reconnecting.")
+                self.reconnect("Error: Connection lost. Reconnecting.", wait)
+                wait *= 2
                 return
             self.data += new_data
-            self.ircCon.logInfo("total:\"%s\"" % self.data)
+            self.ircCon.logInfo("total:'%s'" % self.data)
             if '\r\n' not in self.data:
                 continue
             lines = self.data.split("\r\n")
@@ -294,9 +318,9 @@ class ListenerThread(Thread):
             else:
                 self.data = str()
 
-    def reconnect(self, msg):
+    def reconnect(self, msg, wait=3):
         self.ircCon.printAndLogInfo(msg)
-        self.ircCon.connect(3)
+        self.ircCon.connect(wait)
 
 
 class IRCParseThread(Thread):
@@ -310,7 +334,10 @@ class IRCParseThread(Thread):
     def run(self):
         self.ircCon.logInfo("\"%s\"" % self.data)
         regex = match(MESSAGE_REGEX, self.data)
-        nickname, command, params, trailing = (regex.group(x) for x in ("nickname", "command", "params", "trailing"))
+        nickname = regex.group("nickname")
+        command = regex.group("command")
+        params = regex.group("params")
+        trailing = regex.group("trailing")
         # check for link close
         tmp = search(r"^ERROR :Closing Link:", self.data)
         if tmp:
@@ -331,7 +358,8 @@ class IRCParseThread(Thread):
                     self.ircCon.connectedCondition.notify()
             send(self.ircCon, "PONG :%s\r\n" % trailing)
         # check for welcome message
-        if params == self.ircCon.nick and search(r"Welcome to the.*" + self.ircCon.nick, trailing):
+        if params == self.ircCon.nick and\
+                search(r"Welcome to the.*" + self.ircCon.nick, trailing):
             if self.ircCon.connectedCondition is not None:
                 with self.ircCon.connectedCondition:
                     self.ircCon.connectedCondition.notify()
@@ -348,7 +376,9 @@ class IRCParseThread(Thread):
             elif search(r"\x01DCC SEND", trailing):
                 self.parseSend()
         if command == "NOTICE" and params == self.ircCon.nick:
-            if nickname is not None and nickname in self.ircCon.cancelEvents and (trailing == "don't have a transfer" or "Transfer canceled by user" in trailing):
+            if nickname is not None and nickname in self.ircCon.cancelEvents\
+                    and (trailing == "don't have a transfer"\
+                    or "Transfer canceled by user" in trailing):
                 self.ircCon.cancelEvents[nickname].set()
             if trailing is not None and search(r"\*\* You can only have .* at a time, Added you to the main queue for", trailing):
                 self.ircCon.pout(((asctime(localtime()) + " Waiting in queue for pack.\n", None),))
@@ -374,7 +404,11 @@ class IRCParseThread(Thread):
             return
         # unpack the ip to get a proper hostname
         host = socket.inet_ntoa(pack("!I", ip))
-        dcc = DCCThread(filename, host, port, filesize, self.ircCon, sender)
+        if self.ircCon.sendHook:
+            dcc = self.ircCon.sendHook(filename, host, port, filesize,
+                                       self.ircCon, sender)
+        else:
+            dcc = DCCThread(filename, host, port, filesize, self.ircCon, sender)
         dcc.daemon = True
         dcc.start() # start the thread
         newfile = dcc.join() # wait for the thread to finish
@@ -393,7 +427,8 @@ class PacklistParsingThread(Thread):
     A PacklistParsingThread searches an XDCC bot's packlist
     for packs that match user-specified keywords.
     """
-    def __init__(self, ircConnection, bot, series, sleepTime = 3600 * 3, repeat = True):
+    def __init__(self, ircConnection, bot, series,
+                 sleepTime=3600*3, repeat=True):
         Thread.__init__(self)
         self.filename = None
         self.bot = bot
@@ -407,46 +442,56 @@ class PacklistParsingThread(Thread):
     def kill(self):
         self.die = True
 
+    def loop(self):
+        startTime = time()
+        self.ircCon.msg(self.bot, "XDCC CANCEL")
+        if not self.bot in self.ircCon.cancelEvents:
+            self.ircCon.cancelEvents[self.bot] = Event()
+        self.ircCon.cancelEvents[self.bot].wait(2)
+        del self.ircCon.cancelEvents[self.bot]
+        self.ircCon.pout(((asctime(localtime()), gui.yellowText),
+                          (" - Checking ", None),
+                          (self.bot, gui.magentaText),
+                          (" for packs.\n", None)))
+        packlistArrived = self.waitOnPacklist()
+        self.parseFile()
+        self.ircCon.pout((("Finished checking ", None),
+                          (self.bot, gui.magentaText),
+                          (" for packs.\n", None)))
+        timeShouldSleep = self.sleepTime - (time() - startTime)
+        if not self.repeat:
+            return True
+        elif packlistArrived and timeShouldSleep > 0:
+            sleep(timeShouldSleep)
+        return False
+
     def run(self):
         while not self.die:
-            startTime = time()
-            self.ircCon.msg(self.bot, "XDCC CANCEL")
-            if not self.bot in self.ircCon.cancelEvents:
-                self.ircCon.cancelEvents[self.bot] = Event()
-            self.ircCon.cancelEvents[self.bot].wait(2)
-            del self.ircCon.cancelEvents[self.bot]
-            self.ircCon.pout(((asctime(localtime()), gui.yellowText), (" - Checking ", None), (self.bot, gui.magentaText), (" for packs.\n", None)))
-            packlistArrived = self.waitOnPacklist()
-            self.parseFile()
-            self.ircCon.pout((("Finished checking ", None), (self.bot, gui.magentaText), (" for packs.\n", None)))
-            timeShouldSleep = self.sleepTime - (time() - startTime)
-            if not self.repeat:
+            if self.loop():
                 return
-            elif packlistArrived and timeShouldSleep > 0:
-                sleep(timeShouldSleep)
 
     def waitOnPacklist(self):
-            self.ircCon.lastRequestedPack[self.bot] = None
-            while self.ircCon.lastRequestedPack[self.bot] == None:
-                self.ircCon.lastRequestedPack[self.bot] = "#1"
-                self.ircCon.msg(self.bot, "XDCC SEND #1")
-                if self.bot not in self.ircCon.packlistConditions:
-                    self.ircCon.packlistConditions[self.bot] = Condition(Lock())
-                with self.ircCon.packlistConditions[self.bot]:
-                    self.ircCon.packlistConditions[self.bot].wait()
-                    self.ircCon.logInfo("waitOnPacklist lastRequestedPack: %s" % str(self.ircCon.lastRequestedPack[self.bot]))
-                    if self.ircCon.lastRequestedPack[self.bot] == None:
-                        self.ircCon.logInfo("waitOnPacklist continuing")
-                        continue
-                    if not self.bot in self.ircCon.packlists or not self.ircCon.packlists[self.bot]:
-                        return False
-                    else:
-                        self.filename = self.ircCon.packlists[self.bot]
-                        self.ircCon.logInfo("%s received." % self.filename)
-                        return True
+        self.ircCon.lastRequestedPack[self.bot] = None
+        while self.ircCon.lastRequestedPack[self.bot] == None:
+            self.ircCon.lastRequestedPack[self.bot] = "#1"
+            self.ircCon.msg(self.bot, "XDCC SEND #1")
+            if self.bot not in self.ircCon.packlistConditions:
+                self.ircCon.packlistConditions[self.bot] = Condition(Lock())
+            with self.ircCon.packlistConditions[self.bot]:
+                self.ircCon.packlistConditions[self.bot].wait()
+                self.ircCon.logInfo("waitOnPacklist lastRequestedPack: %s" % str(self.ircCon.lastRequestedPack[self.bot]))
+                if self.ircCon.lastRequestedPack[self.bot] == None:
+                    self.ircCon.logInfo("waitOnPacklist continuing")
+                    continue
+                if not self.bot in self.ircCon.packlists or not self.ircCon.packlists[self.bot]:
+                    return False
+                else:
+                    self.filename = self.ircCon.packlists[self.bot]
+                    self.ircCon.logInfo("%s received." % self.filename)
+                    return True
 
     def parseFile(self):
-        with open(self.filename, mode = "r", encoding = encoding, errors = "ignore") as f:
+        with open(self.filename, "r", encoding=encoding, errors="ignore") as f:
             lines = f.read().splitlines()
         for series in self.series:
             for line in lines:
@@ -464,7 +509,9 @@ class PacklistParsingThread(Thread):
         filesystemLock.acquire()
         if not isfile(self.name):
             filesystemLock.release()
-            self.ircCon.pout((("Requesting pack ", gui.cyanText), (self.pack, gui.yellowText), (" %s\n" % self.name, None)))
+            self.ircCon.pout((("Requesting pack ", gui.cyanText),
+                              (self.pack, gui.yellowText),
+                              (" %s\n" % self.name, None)))
             self.ircCon.lastRequestedPack[self.bot] = None
             while self.ircCon.lastRequestedPack[self.bot] == None:
                 self.ircCon.responseEvents[self.bot] = Event()
@@ -488,8 +535,9 @@ class IRCConnection:
     gui: Boolean value enabling/disabling the GUI.
     maxRate: Max allowable download speed in KiB/s.
     """
-    def __init__(self, network, nick, gui = False, maxRate = 0):
-        port_regex = search(r":([0-9]+)\Z", network)
+    def __init__(self, network, nick, gui=False, maxRate=0,
+                 connectEvent=None, sendHook=None):
+        port_regex = search(r":([0-9]+)$", network)
         if port_regex:
             port_string = port_regex.group(1)
             self.host = network[:-(len(port_string)+1)]
@@ -503,11 +551,12 @@ class IRCConnection:
             self.initializeGUI()
         elif gui:
             self.gui = False
-            print("No curses module detected. Install curses or run with 'gui = False'.")
+            print("No curses module detected. Run with 'gui=False'.")
         else:
             self.gui = None
         if maxRate > 0:
-            self.bucket = TokenBucket(4, 4096 / 1024 / (maxRate / 4), 4, gainAmmount = 4)
+            self.bucket = TokenBucket(4, 4096/1024/(maxRate/4),
+                                      4, gainAmount=4)
         self.lastRequestedPack = dict()
         # stores the filenames of the packlists for each bot
         # assuming bot names are unique and, on an irc server, they are
@@ -523,6 +572,8 @@ class IRCConnection:
         self.cancelEvents = dict()
         # stores join cv's for each channel
         self.joinConditions = dict()
+        self.connectEvent = connectEvent
+        self.sendHook = sendHook
         self.connect()
 
     def initializeGUI(self):
@@ -532,7 +583,7 @@ class IRCConnection:
         self.gui.start()
         window_ready.wait() # wait for window to be initialized
 
-    def connect(self, timeout = 0):
+    def connect(self, timeout=0):
         while True:
             try:
                 self.printAndLogInfo("Attempting to connect.")
@@ -554,13 +605,28 @@ class IRCConnection:
                     self.connectedCondition.wait()
                 self.connectedCondition = None
                 if self.unableToConnect:
+                    if timeout == 0:
+                        timeout = 5
+                    else:
+                        timeout *= 2
                     raise Exception("Unable to connect.")
-                self.pout((("Connected to ", gui.cyanText), (self.host, gui.yellowText), (" as ", None), (self.nick, gui.magentaText), (".\n", None)))
+                if self.connectEvent:
+                    self.connectEvent.set()
+                self.pout((("Connected to ", gui.cyanText),
+                           (self.host, gui.yellowText),
+                           (" as ", None),
+                           (self.nick, gui.magentaText),
+                           (".\n", None)))
                 return
             except socket.error:
                 self.printAndLogInfo("Error: Connection failed.")
             except Exception as err:
                 self.printAndLogInfo("error: {0}".format(err))
+
+    def disconnect(self):
+        if self.listenerThread:
+            self.listenerThread.die = True
+            self.socket.close()
 
     def catchSend(self, string):
         try:
@@ -583,10 +649,14 @@ class IRCConnection:
             self.catchSend("JOIN #%s\r\n" % chan)
             self.joinConditions[chan].wait()
         del self.joinConditions[chan]
-        self.pout((("Joined channel ", gui.cyanText), ("#%s" % chan, gui.yellowText), (".\n", None)))
+        self.pout((("Joined channel ", gui.cyanText),
+                   ("#%s" % chan, gui.yellowText),
+                   (".\n", None)))
 
-    def parseBot(self, bot, packs, blocking = True, sleepTime = 3600 * 3, repeat = False):
-        ppt = PacklistParsingThread(self, bot, packs, sleepTime = sleepTime, repeat = repeat)
+    def parseBot(self, bot, packs, blocking=True,
+                 sleepTime=3600*3, repeat=False):
+        ppt = PacklistParsingThread(self, bot, packs,
+                                    sleepTime=sleepTime, repeat=repeat)
         ppt.daemon = True
         ppt.start()
         if blocking:
@@ -619,7 +689,7 @@ class IRCConnection:
                 color = gui.redText
             self.gui.addLine("%s\n" % string, color)
 
-    def pout(self, l, clearInput = False):
+    def pout(self, l, clearInput=False):
         if self.gui is None:
             for tup in l:
                 print(tup[0], end="")
