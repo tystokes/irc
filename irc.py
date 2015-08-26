@@ -279,7 +279,7 @@ class ListenerThread(Thread):
                 self.reconnect("Error: Connection to server lost. Reconnecting.")
                 return
             self.data += new_data
-            self.ircCon.logInfo("total:\"%s\"" % self.data)
+            self.ircCon.logInfo("total:'%s'" % self.data)
             if '\r\n' not in self.data:
                 continue
             lines = self.data.split("\r\n")
@@ -374,7 +374,10 @@ class IRCParseThread(Thread):
             return
         # unpack the ip to get a proper hostname
         host = socket.inet_ntoa(pack("!I", ip))
-        dcc = DCCThread(filename, host, port, filesize, self.ircCon, sender)
+        if self.ircCon.sendHook:
+            dcc = self.ircCon.sendHook(filename, host, port, filesize, self.ircCon, sender)
+        else:
+            dcc = DCCThread(filename, host, port, filesize, self.ircCon, sender)
         dcc.daemon = True
         dcc.start() # start the thread
         newfile = dcc.join() # wait for the thread to finish
@@ -488,7 +491,7 @@ class IRCConnection:
     gui: Boolean value enabling/disabling the GUI.
     maxRate: Max allowable download speed in KiB/s.
     """
-    def __init__(self, network, nick, gui = False, maxRate = 0):
+    def __init__(self, network, nick, gui = False, maxRate = 0, connectEvent = None, sendHook = None):
         port_regex = search(r":([0-9]+)\Z", network)
         if port_regex:
             port_string = port_regex.group(1)
@@ -523,6 +526,8 @@ class IRCConnection:
         self.cancelEvents = dict()
         # stores join cv's for each channel
         self.joinConditions = dict()
+        self.connectEvent = connectEvent
+        self.sendHook = sendHook
         self.connect()
 
     def initializeGUI(self):
@@ -555,12 +560,19 @@ class IRCConnection:
                 self.connectedCondition = None
                 if self.unableToConnect:
                     raise Exception("Unable to connect.")
+                if self.connectEvent:
+                    self.connectEvent.set()
                 self.pout((("Connected to ", gui.cyanText), (self.host, gui.yellowText), (" as ", None), (self.nick, gui.magentaText), (".\n", None)))
                 return
             except socket.error:
                 self.printAndLogInfo("Error: Connection failed.")
             except Exception as err:
                 self.printAndLogInfo("error: {0}".format(err))
+
+    def disconnect(self):
+        if self.listenerThread:
+            self.listenerThread.die = True
+            self.socket.close()
 
     def catchSend(self, string):
         try:
