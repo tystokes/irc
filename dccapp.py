@@ -21,7 +21,13 @@ class RelayThread(irc.DCCThread):
 lock = Lock()
 
 @app.route("/")
-def hello():
+@app.route("/<string:packNum>")
+def hello(packNum="1"):
+    # make sure the pack is a valid integer
+    try:
+        int(packNum)
+    except:
+        return json.dumps({})
     with lock:
         print("output")
         connectEvent = Event()
@@ -31,15 +37,19 @@ def hello():
                                 connectEvent=connectEvent,
                                 sendHook=RelayThread)
         connectEvent.wait()
-        bot = "Ginpachi-Sensei"
-        con.msg(bot, "XDCC SEND #175")
         # bot = "xdcc"
+        bot = "Ginpachi-Sensei"
+        global relayThread
+        relayThread = None
+        con.msg(bot, "XDCC SEND #%s" % packNum)
         # con.msg(bot, "XDCC SEND #1")
-        relayEvent.wait()
+        relayEvent.wait(10)
         print(relayThread)
         con.disconnect()
         count += 1
-        return json.dumps({"filename": relayThread.filename,
-                           "hostname": relayThread.host,
-                           "port": relayThread.port,
-                           "filesize": relayThread.filesize})
+        if relayThread:
+            return json.dumps({"filename": relayThread.filename,
+                               "hostname": relayThread.host,
+                               "port": relayThread.port,
+                               "filesize": relayThread.filesize})
+    return json.dumps({})
