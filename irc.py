@@ -283,8 +283,9 @@ class ListenerThread(Thread):
                 self.reconnect("Error: Socket timout. Reconnecting.")
                 return
             except socket.error as socketerror:
-                self.ircCon.lockPrint("Error: %s" % str(socketerror))
-                self.ircCon.lockPrint("Quitting listener thread.")
+                if not self.die:
+                    self.ircCon.lockPrint("Error: %s" % str(socketerror))
+                    self.ircCon.lockPrint("Quitting listener thread.")
                 return
             # recv returns 0 only when the connection is lost
             if len(new_data) == 0:

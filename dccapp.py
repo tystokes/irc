@@ -12,7 +12,7 @@ relayThread = None
 
 class RelayThread(irc.DCCThread):
     def run(self):
-        print(self.filename, self.filesize)
+        print("Relaying:", self.filename, self.filesize)
         global relayThread
         relayThread = self
         relayEvent.set()
@@ -25,15 +25,16 @@ lock = Lock()
 def hello(packNum="1"):
     # make sure the pack is a valid integer
     try:
-        int(packNum)
+        tmp = int(packNum)
+        if tmp > 100000 or tmp < 1:
+            return json.dumps({})
     except:
         return json.dumps({})
     with lock:
-        print("output")
         connectEvent = Event()
         global count
         con = irc.IRCConnection(network="irc.rizon.net",
-                                nick="roughneck" + str(count),
+                                nick="relayroughneck" + str(count),
                                 connectEvent=connectEvent,
                                 sendHook=RelayThread)
         connectEvent.wait()
@@ -44,12 +45,15 @@ def hello(packNum="1"):
         con.msg(bot, "XDCC SEND #%s" % packNum)
         # con.msg(bot, "XDCC SEND #1")
         relayEvent.wait(10)
-        print(relayThread)
+
+        # print(relayThread)
         con.disconnect()
         count += 1
+        print('done')
         if relayThread:
             return json.dumps({"filename": relayThread.filename,
                                "hostname": relayThread.host,
                                "port": relayThread.port,
                                "filesize": relayThread.filesize})
+    con.msg(bot, "XDCC CANCEL")
     return json.dumps({})
