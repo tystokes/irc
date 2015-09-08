@@ -19,9 +19,9 @@ def test_cs():
 
 @timed(15)
 def test_connect_strings():
-    IRCConnection("irc.rizon.net", "testroughneck" + str(randint(1000, 9999)))
+    IRCConnection("truly.red", "testroughneck" + str(randint(1000, 9999)))
     sleep(1)
-    IRCConnection("irc.rizon.net:6667", "testroughneck"+ str(randint(1000, 9999)))
+    IRCConnection("truly.red:6667", "testroughneck"+ str(randint(1000, 9999)))
 
 @timed(45)
 def test_packlist():
