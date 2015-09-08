@@ -605,7 +605,7 @@ class IRCConnection:
                 if self.unableToConnect:
                     if timeout == 0:
                         timeout = 5
-                    else
+                    else:
                         timeout *= 2
                     raise Exception("Unable to connect.")
                 if self.connectEvent:
