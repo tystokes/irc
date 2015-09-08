@@ -283,6 +283,7 @@ class ListenerThread(Thread):
 
     def run(self):
         """Main parse loop receives data and parses it for requests."""
+        wait = 5
         started = time()
         while not self.die:
             try:
@@ -298,7 +299,8 @@ class ListenerThread(Thread):
                 return
             # recv returns 0 only when the connection is lost
             if len(new_data) == 0:
-                self.reconnect("Error: Connection lost. Reconnecting.")
+                self.reconnect("Error: Connection lost. Reconnecting.", wait)
+                wait *= 2
                 return
             self.data += new_data
             self.ircCon.logInfo("total:'%s'" % self.data)
@@ -316,9 +318,9 @@ class ListenerThread(Thread):
             else:
                 self.data = str()
 
-    def reconnect(self, msg):
+    def reconnect(self, msg, wait=3):
         self.ircCon.printAndLogInfo(msg)
-        self.ircCon.connect(3)
+        self.ircCon.connect(wait)
 
 
 class IRCParseThread(Thread):
