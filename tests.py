@@ -19,30 +19,23 @@ def test_cs():
 
 @timed(15)
 def test_connect_strings():
-    for connect_string in ["truly.red", "truly.red:6667"]:
+    for connect_string in ["truly.red", "irc.rizon.net:6667"]:
         con = IRCConnection(connect_string,
                             "testroughneck" + str(randint(1000, 9999)))
-        sleep(3)
         con.disconnect()
 
 @timed(45)
-def test_packlist():
+def test_packlist_parsing():
     if isfile('xdcc.txt'):
         remove('xdcc.txt')
+    if isfile('test.txt'):
+        remove('test.txt')
     con = IRCConnection("truly.red", "testroughneck"+ str(randint(1000, 9999)))
-    con.parseBot("xdcc", [r'a file that doesnt exist'])
+    con.parseBot("xdcc", [r'a file that doesnt exist', r'test\.txt'])
     if isfile('xdcc.txt'):
         remove('xdcc.txt')
     else:
         raise Exception('Packlist did not download properly.')
-    con.disconnect()
-
-@timed(45)
-def test_parsing():
-    if isfile('test.txt'):
-        remove('test.txt')
-    con = IRCConnection("truly.red", "testroughneck"+ str(randint(1000, 9999)))
-    con.parseBot("xdcc", [r'test\.txt'])
     if isfile('test.txt'):
         remove('test.txt')
     else:
