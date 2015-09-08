@@ -603,6 +603,10 @@ class IRCConnection:
                     self.connectedCondition.wait()
                 self.connectedCondition = None
                 if self.unableToConnect:
+                    if timeout == 0:
+                        timeout = 5
+                    else
+                        timeout *= 2
                     raise Exception("Unable to connect.")
                 if self.connectEvent:
                     self.connectEvent.set()

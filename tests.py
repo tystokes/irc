@@ -19,9 +19,11 @@ def test_cs():
 
 @timed(15)
 def test_connect_strings():
-    IRCConnection("truly.red", "testroughneck" + str(randint(1000, 9999)))
-    sleep(1)
-    IRCConnection("truly.red:6667", "testroughneck"+ str(randint(1000, 9999)))
+    for connect_string in ["truly.red", "truly.red:6667"]:
+        con = IRCConnection(connect_string,
+                            "testroughneck" + str(randint(1000, 9999)))
+        sleep(3)
+        con.disconnect()
 
 @timed(45)
 def test_packlist():
@@ -33,6 +35,7 @@ def test_packlist():
         remove('xdcc.txt')
     else:
         raise Exception('Packlist did not download properly.')
+    con.disconnect()
 
 @timed(45)
 def test_parsing():
@@ -44,3 +47,4 @@ def test_parsing():
         remove('test.txt')
     else:
         raise Exception('test.txt did not download properly.')
+    con.disconnect()
