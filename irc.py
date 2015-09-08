@@ -16,11 +16,11 @@ from struct import pack
 from time import time, sleep, localtime, asctime
 from datetime import timedelta
 from re import match, search, sub
-from os import chdir
+from os import chdir, environ
 from os.path import isfile, getsize, realpath, dirname
 from math import log
 from threading import Thread, Lock, Condition, Event
-from sys import getfilesystemencoding
+from sys import getfilesystemencoding, stdout
 from hashlib import md5
 
 # Switch the current working directory to directory this file is in
@@ -32,6 +32,15 @@ logging.getLogger().addHandler(logging.FileHandler(filename="irc.log",
                                                    mode="w",
                                                    encoding=encoding))
 logging.getLogger().setLevel(logging.INFO)
+
+streamHandler = logging.StreamHandler(stdout)
+streamHandler.setLevel(logging.INFO)
+fmt = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+streamHandler.setFormatter(fmt)
+
+if "DEBUG" in environ and environ["DEBUG"] == "true":
+    logging.getLogger().addHandler(streamHandler)
+
 # Global filesystem lock.
 filesystemLock = Lock()
 # Regular expression string used to parse IRC messages
