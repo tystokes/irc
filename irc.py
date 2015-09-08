@@ -449,13 +449,15 @@ class PacklistParsingThread(Thread):
                           (" for packs.\n", None)))
         timeShouldSleep = self.sleepTime - (time() - startTime)
         if not self.repeat:
-            return
+            return True
         elif packlistArrived and timeShouldSleep > 0:
             sleep(timeShouldSleep)
+        return False
 
     def run(self):
         while not self.die:
-            self.loop()
+            if self.loop():
+                return
 
     def waitOnPacklist(self):
         self.ircCon.lastRequestedPack[self.bot] = None
@@ -672,7 +674,7 @@ class IRCConnection:
                 color = gui.redText
             self.gui.addLine("%s\n" % string, color)
 
-    def pout(self, l, clearInput = False):
+    def pout(self, l, clearInput=False):
         if self.gui is None:
             for tup in l:
                 print(tup[0], end="")

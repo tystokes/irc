@@ -43,10 +43,7 @@ def hello(packNum="1"):
         global relayThread
         relayThread = None
         con.msg(bot, "XDCC SEND #%s" % packNum)
-        # con.msg(bot, "XDCC SEND #1")
         relayEvent.wait(10)
-
-        # print(relayThread)
         con.disconnect()
         count += 1
         print('done')
@@ -55,5 +52,4 @@ def hello(packNum="1"):
                                "hostname": relayThread.host,
                                "port": relayThread.port,
                                "filesize": relayThread.filesize})
-    con.msg(bot, "XDCC CANCEL")
     return json.dumps({})
