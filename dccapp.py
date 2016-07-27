@@ -1,16 +1,17 @@
-from flask import Flask
+#!/usr/bin/python3
+from bottle import route, run
 from time import sleep
 from threading import Event, Lock
 import json
 import irc
-
-count = 0
-app = Flask(__name__)
+import sys
 
 relayEvent = Event()
 relayThread = None
 
+
 class RelayThread(irc.DCCThread):
+    """Holds data ready to be relayed to a client."""
     def run(self):
         print("Relaying:", self.filename, self.filesize)
         global relayThread
@@ -18,11 +19,17 @@ class RelayThread(irc.DCCThread):
         relayEvent.set()
         relayEvent.clear()
 
+    def json(self):
+        return json.dumps({"filename": self.filename,
+                           "hostname": self.host,
+                           "port": self.port,
+                           "filesize": self.filesize})
+
 lock = Lock()
 
-@app.route("/")
-@app.route("/<string:packNum>")
-def hello(packNum="1"):
+@route("/")
+@route("/<bot>/<packNum>")
+def hello(bot="Ginpachi-Sensei", packNum="0"):
     # make sure the pack is a valid integer
     try:
         tmp = int(packNum)
@@ -32,28 +39,23 @@ def hello(packNum="1"):
         return json.dumps({})
     with lock:
         connectEvent = Event()
-        global count
-        con = irc.IRCConnection(network="irc.rizon.net",
-                                nick="relayroughneck" + str(count),
-                                connectEvent=connectEvent,
-                                sendHook=RelayThread)
-        connectEvent.wait()
-        # bot = "xdcc"
-        bot = "Ginpachi-Sensei"
-        global relayThread
-        relayThread = None
-        con.msg(bot, "XDCC SEND #%s" % packNum)
-        # con.msg(bot, "XDCC SEND #1")
-        relayEvent.wait(10)
-
-        # print(relayThread)
-        con.disconnect()
-        count += 1
-        print('done')
-        if relayThread:
-            return json.dumps({"filename": relayThread.filename,
-                               "hostname": relayThread.host,
-                               "port": relayThread.port,
-                               "filesize": relayThread.filesize})
-    con.msg(bot, "XDCC CANCEL")
+        with irc.IRCConnection(network="irc.rizon.net",
+                               nick="relayroughneck" + packNum,
+                               connectEvent=connectEvent,
+                               sendHook=RelayThread) as con:
+            connectEvent.wait()
+            sleep(1)
+            global relayThread
+            relayThread = None
+            con.msg(bot, "XDCC SEND #%s" % packNum)
+            relayEvent.wait(10)
+            if relayThread is not None:
+                return relayThread.json()
+        sleep(3)
     return json.dumps({})
+
+if __name__ == "__main__":
+    try:
+        run(host=sys.argv[1], port=5555)
+    except:
+        print("usage: ./dccapp.py <host_addr>")

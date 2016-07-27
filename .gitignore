@@ -1,9 +1,10 @@
 *.txt
-*.log
+*log*
 *.mkv
 *.mp3
 *.mp4
 *.wav
 *.png
 *.jpg
+*.sh
 __pycache__/

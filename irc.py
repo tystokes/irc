@@ -12,6 +12,7 @@ except:
     NO_GUI = True
 import socket
 import logging
+from logging.handlers import RotatingFileHandler
 from struct import pack
 from time import time, sleep, localtime, asctime
 from datetime import timedelta
@@ -28,8 +29,10 @@ chdir(realpath(dirname(__file__)))
 encoding = getfilesystemencoding()
 
 # Set us up a log file
-logging.getLogger().addHandler(logging.FileHandler(filename="irc.log",
+logging.getLogger().addHandler(RotatingFileHandler(filename="irc.log",
                                                    mode="w",
+                                                   maxBytes=1024*512,
+                                                   backupCount=2,
                                                    encoding=encoding))
 logging.getLogger().setLevel(logging.INFO)
 # Global filesystem lock.
@@ -139,6 +142,7 @@ class DCCThread(Thread):
     def __init__(self, filename, host, port, filesize,
                  ircConnection, sender, md5check=False):
         Thread.__init__(self)
+        self.daemon = True
         self.ircCon = ircConnection
         self.filename = filename
         self.host = host
@@ -268,6 +272,7 @@ class ListenerThread(Thread):
     """
     def __init__(self, ircConnection):
         Thread.__init__(self)
+        self.daemon = True
         self.ircCon = ircConnection
         self.die = False
         self.data = str()
@@ -292,7 +297,7 @@ class ListenerThread(Thread):
                 self.reconnect("Error: Connection lost. Reconnecting.")
                 return
             self.data += new_data
-            self.ircCon.logInfo("total:'%s'" % self.data)
+            # self.ircCon.logInfo("total:'%s'" % self.data)
             if '\r\n' not in self.data:
                 continue
             lines = self.data.split("\r\n")
@@ -300,14 +305,17 @@ class ListenerThread(Thread):
                 if not match(MESSAGE_REGEX, lines[i]) or lines[i] == "":
                     continue
                 pt = IRCParseThread(self.ircCon, lines[i], self)
-                pt.daemon = True
                 pt.start()
             if lines[len(lines)-1] != "":
                 self.data = lines[len(lines)-1]
             else:
                 self.data = str()
+        self.ircCon.printAndLogInfo("ListenerThread Quitting.")
 
     def reconnect(self, msg):
+        if self.die:
+            self.ircCon.printAndLogInfo("ListenerThread Quitting.")
+            return
         self.ircCon.printAndLogInfo(msg)
         self.ircCon.connect(3)
 
@@ -316,6 +324,7 @@ class IRCParseThread(Thread):
     """Handles parsing incoming data from the irc socket."""
     def __init__(self, ircConnection, data, listenerThread):
         Thread.__init__(self)
+        self.daemon = True
         self.ircCon = ircConnection
         self.data = data
         self.listenerThread = listenerThread
@@ -398,7 +407,6 @@ class IRCParseThread(Thread):
                                        self.ircCon, sender)
         else:
             dcc = DCCThread(filename, host, port, filesize, self.ircCon, sender)
-        dcc.daemon = True
         dcc.start() # start the thread
         newfile = dcc.join() # wait for the thread to finish
         # notify anyone waiting on the packlistCondition for this bot
@@ -419,6 +427,7 @@ class PacklistParsingThread(Thread):
     def __init__(self, ircConnection, bot, series,
                  sleepTime=3600*3, repeat=True):
         Thread.__init__(self)
+        self.daemon = True
         self.filename = None
         self.bot = bot
         self.ircCon = ircConnection
@@ -481,10 +490,13 @@ class PacklistParsingThread(Thread):
         with open(self.filename, "r", encoding=encoding, errors="ignore") as f:
             lines = f.read().splitlines()
         for series in self.series:
+            packCount = 0
             for line in lines:
                 try:
                     (self.pack, self.dls, self.size, self.name) = [t(s) for t,s in zip((str,int,str,str),
-                    search(r"(\S+) +(\d+)x \[([^\[^\]]+)\] ([^\"^\n]+)", line).groups())]
+                    search(r"(\S+) +(\d+)x \[( *[\d\S]+)\] ([^\"^\n]+)", line).groups())]
+                    packCount += 1
+                    self.pack = "#%d" % packCount
                     if not search(series, self.name):
                         raise Exception("regex failure")
                     self.checkCandidate()
@@ -524,6 +536,7 @@ class IRCConnection:
     """
     def __init__(self, network, nick, gui=False, maxRate=0,
                  connectEvent=None, sendHook=None):
+        self.reconnectAttempts = 0
         port_regex = search(r":([0-9]+)$", network)
         if port_regex:
             port_string = port_regex.group(1)
@@ -572,6 +585,10 @@ class IRCConnection:
 
     def connect(self, timeout=0):
         while True:
+            self.reconnectAttempts += 1
+            if self.reconnectAttempts > 1:
+                self.printAndLogInfo("Failsafe reconnect limit reached.")
+                return
             try:
                 self.printAndLogInfo("Attempting to connect.")
                 if timeout > 0:
@@ -587,7 +604,6 @@ class IRCConnection:
                 self.unableToConnect = False
                 with self.connectedCondition:
                     self.listenerThread = ListenerThread(self)
-                    self.listenerThread.daemon = True
                     self.listenerThread.start()
                     self.connectedCondition.wait()
                 self.connectedCondition = None
@@ -610,6 +626,12 @@ class IRCConnection:
         if self.listenerThread:
             self.listenerThread.die = True
             self.socket.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.disconnect()
 
     def catchSend(self, string):
         try:
@@ -640,7 +662,6 @@ class IRCConnection:
                  sleepTime=3600*3, repeat=False):
         ppt = PacklistParsingThread(self, bot, packs,
                                     sleepTime=sleepTime, repeat=repeat)
-        ppt.daemon = True
         ppt.start()
         if blocking:
             ppt.join()
