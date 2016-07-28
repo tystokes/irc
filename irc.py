@@ -586,7 +586,7 @@ class IRCConnection:
     def connect(self, timeout=0):
         while True:
             self.reconnectAttempts += 1
-            if self.reconnectAttempts > 1:
+            if self.reconnectAttempts > 3:
                 self.printAndLogInfo("Failsafe reconnect limit reached.")
                 return
             try:
@@ -623,6 +623,7 @@ class IRCConnection:
                 self.printAndLogInfo("error: {0}".format(err))
 
     def disconnect(self):
+        send(self, "QUIT :\r\n")
         if self.listenerThread:
             self.listenerThread.die = True
             self.socket.close()

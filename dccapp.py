@@ -51,7 +51,7 @@ def hello(bot="Ginpachi-Sensei", packNum="0"):
             relayEvent.wait(10)
             if relayThread is not None:
                 return relayThread.json()
-        sleep(3)
+        sleep(1)
     return json.dumps({})
 
 if __name__ == "__main__":
