@@ -458,6 +458,7 @@ class PacklistParsingThread(Thread):
                           (" for packs.\n", None)))
         timeShouldSleep = self.sleepTime - (time() - startTime)
         if not self.repeat:
+            self.kill()
             return
         elif packlistArrived and timeShouldSleep > 0:
             sleep(timeShouldSleep)
